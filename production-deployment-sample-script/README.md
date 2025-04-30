@@ -1,6 +1,6 @@
 Overview
 --------
-The purpose of this script is to help you deploy a game server update for Amazon GameLift hosting and then transition
+The purpose of this script is to help you deploy a game server update for Amazon GameLift Servers hosting and then transition
 player traffic to game sessions running on the new game server.  The mechanics of the script rely on the use of an Alias to designate a Fleet resource.  With this script, you upload the game server update as a new Build resource and deploy it to a new Fleet resource. The script then updates the Alias assignment from the current Fleet to the new Fleet, once the new Fleet is ready to accept player traffic.  At that point, players are directed to join game sessions that use the new version of the game server.
 
 Prerequisites
