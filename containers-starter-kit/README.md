@@ -1,6 +1,6 @@
-# Amazon GameLift Containers Starter Kit
+# Amazon GameLift Servers Containers Starter Kit
 
-This solution provides an easy start with Container Fleets on Amazon GameLift. You can use any game server Linux binary you have, and you are not required to integrate with the Amazon GameLift Server SDK to get started. We also utilize AWS CloudFormation and AWS CodeBuild to create the required Amazon GameLift resources, and to deploy new game server versions on the fleet. You don't need to install any tools locally, and can simply upload your game server build to Amazon S3 and deploy with a single button in the CodeBuild project.
+This solution provides an easy start with Container Fleets on Amazon GameLift Servers. You can use any game server Linux binary you have, and you are not required to integrate with the Amazon GameLift Server SDK to get started. We also utilize AWS CloudFormation and AWS CodeBuild to create the required Amazon GameLift Servers resources, and to deploy new game server versions on the fleet. You don't need to install any tools locally, and can simply upload your game server build to Amazon S3 and deploy with a single button in the CodeBuild project.
 
 When you want to take advantage of the full features of the Amazon GameLift Server SDK, you can follow the instructions to [integrate with the Amazon GameLift Server SDK directly](#removing-the-wrapper-to-utilize-the-amazon-gamelift-server-sdk-directly).
 
@@ -17,7 +17,7 @@ cd amazon-gamelift-toolkit/containers-starter-kit/
 
 You should also open the `containers-starter-kit` folder in your favorite IDE or editor.
 
-## 1. Deploy the Amazon GameLift Fleet and CodeBuild build automation 
+## 1. Deploy the Amazon GameLift Servers Fleet and CodeBuild build automation 
 
 1. Open the **AWS CloudFormation console** in your browser and select **Create stack** -> **With new resources** 
 3. Select **Upload template**  and upload the `fleet_deployment_pipeline.yml` file, and select **Next**
@@ -43,11 +43,11 @@ In case your game server requires additional packages or configuration on the co
 1. In the CloudFormation console, select **Outputs** in your stack, and open the link for **GameServerBuildBucket** in a new tab
 2. Upload `gameserver.zip` by selecting **Upload**, then dragging your `gameserver.zip` to the upload area and selecting **Upload** again
 3. After the upload is complete, go back to the CloudFormation console, open the link for **GameServerCodeBuildProject** in a new tab
-4. Select **Start build** to start the build of your container image and the Amazon GameLift Container Group Definition that will be automatically deployed to the fleet created before
+4. Select **Start build** to start the build of your container image and the Amazon GameLift Servers Container Group Definition that will be automatically deployed to the fleet created before
 
 **NOTE:** Uploading a large build (such as an Unreal server) can be slow through the browser. It's a lot faster using the [AWS CLI](https://docs.aws.amazon.com/cli/latest/reference/s3/cp.html).
 
-You can follow the build process in CodeBuild to make sure it succeeds without errors. If you want to see the steps of the build process, select the *Build Details* tab and review the *BuildSpec*. This includes setting up the SDK, building your container, and deploying a new container group to the fleet. After the build succeeds, you can use the Amazon GameLift console to review the deployment of the container group to your Amazon GameLift fleet. Once the fleet is active, you can move on to testing with a game session.
+You can follow the build process in CodeBuild to make sure it succeeds without errors. If you want to see the steps of the build process, select the *Build Details* tab and review the *BuildSpec*. This includes setting up the SDK, building your container, and deploying a new container group to the fleet. After the build succeeds, you can use the Amazon GameLift Servers console to review the deployment of the container group to your Amazon GameLift Servers fleet. Once the fleet is active, you can move on to testing with a game session.
 
 # Test by creating a game session
 
@@ -92,7 +92,7 @@ The game session data JSON string value has the following format:
 
 # Debugging your deployment
 
-In case your Amazon GameLift Containers fleet doesn't become active when doing a deployment, the best place to look at is the *Amazon CloudWatch Logs console*, and finding the log group with your fleet ID. The log output contains *both* the output of the sidecar process managing the GameLift Server Go SDK, as well as the output of your actual game server binary.
+In case your Amazon GameLift Servers Containers fleet doesn't become active when doing a deployment, the best place to look at is the *Amazon CloudWatch Logs console*, and finding the log group with your fleet ID. The log output contains *both* the output of the sidecar process managing the GameLift Server Go SDK, as well as the output of your actual game server binary.
 
 **Typical issues**
 
@@ -110,15 +110,15 @@ The log output should be able to give you insights in where it's failing.
 The solution consists of a few key components. These components include
 
 * **SdkGoWrapper** which is automatically built as part of the CodeBuild project. It utilizes the Amazon GameLift Server SDK for Go, and automatically registers and terminates your game server process
-* **wrapper.sh** which runs the SdkGoWrapper in the background, registering the port you have defined to Amazon GameLift. It also runs your game server binary, and waits for it to terminate. Once it terminates, it will signal the SdkGoWrapper to correctly terminate the game session from Amazon GameLift
+* **wrapper.sh** which runs the SdkGoWrapper in the background, registering the port you have defined to Amazon GameLift Servers. It also runs your game server binary, and waits for it to terminate. Once it terminates, it will signal the SdkGoWrapper to correctly terminate the game session from Amazon GameLift Servers
 * **Dockerfile** which includes the setup for creating a container image that contains the built SdkGoWrapper and your game server binary. It utilizes the `wrapper.sh` as the entry point of the container
-* **fleet_deployment_pipeline.yml** which deploys an Amazon S3 bucket for game server build hosting, as well as the Amazon GameLift container fleet that will host your game server builds. It also deploys an AWS CodeBuild project which builds your container image, uploads it to Amazon ECR, and deploys a new Container Group Definition version to your fleet
+* **fleet_deployment_pipeline.yml** which deploys an Amazon S3 bucket for game server build hosting, as well as the Amazon GameLift Servers container fleet that will host your game server builds. It also deploys an AWS CodeBuild project which builds your container image, uploads it to Amazon ECR, and deploys a new Container Group Definition version to your fleet
 
 ## Go SDK Wrapper Implementation
 
-The Go SDK Wrapper we use manages the communication to the Amazon GameLift service on behalf of your game server. It automatically replies healthy to health checks, and automatically activates the game sessions as requests come in. Once it receives the `SIGINT` signal from the `wrapper.sh`, it will call `ProcessEnding` to make sure GameLift immediately replaces the container with a new one and terminates a running game session.
+The Go SDK Wrapper we use manages the communication to the Amazon GameLift Servers service on behalf of your game server. It automatically replies healthy to health checks, and automatically activates the game sessions as requests come in. Once it receives the `SIGINT` signal from the `wrapper.sh`, it will call `ProcessEnding` to make sure GameLift immediately replaces the container with a new one and terminates a running game session.
 
-The wrapper does not pass any game session information to the game server process itself, as it is running on the side. If you need deeper integration to the game session data of Amazon GameLift, you should see [Customization](#customization) below to integrate with the Amazon GameLift Server SDK directly.
+The wrapper does not pass any game session information to the game server process itself, as it is running on the side. If you need deeper integration to the game session data of Amazon GameLift Servers, you should see [Customization](#customization) below to integrate with the Amazon GameLift Server SDK directly.
 
 ## Customization
 
