@@ -1,6 +1,6 @@
 # Building the Amazon GameLift Server SDK for Unreal Engine 5 on Amazon Linux
 
-This quick guide shows how to build the binaries for the Amazon GameLift Server SDK for Unreal Engine 5 builds on Amazon Linux 2023. The build is done in the AWS Cloud Shell without the need to install any additional tools on your local system. The output binaries can be used with the Amazon GameLift Plugin for Unreal Engine.
+This quick guide shows how to build the binaries for the Amazon GameLift Server SDK for Unreal Engine 5 builds on Amazon Linux 2023. The build is done in the AWS Cloud Shell without the need to install any additional tools on your local system. The output binaries can be used with the Amazon GameLift Servers Plugin for Unreal Engine.
 
 **NOTE:** The fastest way to run the build is to use AWS CloudShell with the instructions below without the need to install any tools locally. If you do however want to run it locally, the only things you need a [git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) and [docker](https://docs.docker.com/get-docker/) installed and you can run the build on MacOS terminal or Windows [WSL](https://learn.microsoft.com/en-us/windows/wsl/install). 
 
@@ -35,19 +35,19 @@ cd amazon-gamelift-toolkit/building-gamelift-server-sdk-for-unreal-engine-and-am
 ```
 
 **Select** `Actions` and `Download` in CloudShell and type `/home/cloudshell-user/amazon-gamelift-toolkit/building-gamelift-server-sdk-for-unreal-engine-and-amazon-linux/AL2023GameliftUE5sdk.zip` to download the binaries to your local system.
-# Quick start with Amazon GameLift Unreal Plugin
+# Quick start with Amazon GameLift Servers Unreal Plugin
 
-The Amazon GameLift Unreal plugin supports Linux-based deployments as long as you have the correct binaries available. If you feel like you already know what you're doing and only want to get the binaries to the right place, these steps help you do exactly that:
+The Amazon GameLift Servers Unreal plugin supports Linux-based deployments as long as you have the correct binaries available. If you feel like you already know what you're doing and only want to get the binaries to the right place, these steps help you do exactly that:
 
 1. Follow the steps in [Building the SDK](#building-the-sdk) to build the SDK and download the binaries
-2. Copy the `libaws-cpp-sdk-gamelift-server.so` to `amazon-gamelift-plugin-unreal/GameLiftPlugin/Source/GameliftServer/ThirdParty/GameLiftServerSDK/Linux/x86_64-unknown-linux-gnu/` inside the Amazon GameLift Unreal plugin in your project
-3. Once you've packaged the project for Linux, copy the files `libcrypto.so-.1.1` and `libssl.so.1.1` to your package folder under `<YOURGAME>/Binaries/Linux` before uploading the build to Amazon GameLift
+2. Copy the `libaws-cpp-sdk-gamelift-server.so` to `amazon-gamelift-plugin-unreal/GameLiftPlugin/Source/GameliftServer/ThirdParty/GameLiftServerSDK/Linux/x86_64-unknown-linux-gnu/` inside the Amazon GameLift Servers Unreal plugin in your project
+3. Once you've packaged the project for Linux, copy the files `libcrypto.so-.1.1` and `libssl.so.1.1` to your package folder under `<YOURGAME>/Binaries/Linux` before uploading the build to Amazon GameLift Servers
 
 See the next section for a detailed step by step guide.
 
-# Step by step instructions with Amazon GameLift Unreal Plugin
+# Step by step instructions with Amazon GameLift Servers Unreal Plugin
 
-These are the more detailed steps on setting up your Unreal Engine project with the Amazon GameLift Plugin and Linux binaries to deploy a Linux fleet on Amazon GameLift. Most of the steps are the same as in the [guide for integrating games with the plugin for Unreal](https://docs.aws.amazon.com/gamelift/latest/developerguide/unreal-plugin.html), but we have some important modifications for the Linux game server setup>
+These are the more detailed steps on setting up your Unreal Engine project with the Amazon GameLift Servers Plugin and Linux binaries to deploy a Linux fleet on Amazon GameLift Servers. Most of the steps are the same as in the [guide for integrating games with the plugin for Unreal](https://docs.aws.amazon.com/gamelift/latest/developerguide/unreal-plugin.html), but we have some important modifications for the Linux game server setup>
 
 1. Follow the steps to build the SDK and download in Cloud Shell
 2. Build UE5 from source (DevelopmentEditor configuration) to start the editor
@@ -93,8 +93,8 @@ These are the more detailed steps on setting up your Unreal Engine project with 
 sudo chmod 777 /local/game/<YOURGAME>/Binaries/Linux/<YOURGAMEBINARY>
 
 ```     
-16. Set up the Amazon GameLift Unreal Plugin profile
-17. Follow the guide for [deploying a managed Amazon GameLift fleet with the plugin](https://docs.aws.amazon.com/gamelift/latest/developerguide/unreal-plugin-ec2.html) to deploy a test fleet. (You could also manually upload the build using the AWS CLI and use any method you want for creating a fleet). Make sure to do the following changes to deployment for Amazon Linux 2023
+16. Set up the Amazon GameLift Servers Unreal Plugin profile
+17. Follow the guide for [deploying a managed Amazon GameLift Servers fleet with the plugin](https://docs.aws.amazon.com/gamelift/latest/developerguide/unreal-plugin-ec2.html) to deploy a test fleet. (You could also manually upload the build using the AWS CLI and use any method you want for creating a fleet). Make sure to do the following changes to deployment for Amazon Linux 2023
   * Set the `Server Build OS`to `Amazon Linux 2023 (AL2023`) in the UI
   * Manually input the `Server build executable` (this has to be an absolute path)
 18. Build and run a Windows client using the plugin
