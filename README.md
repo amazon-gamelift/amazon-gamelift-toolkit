@@ -1,6 +1,6 @@
-# Amazon GameLift Toolkit
+# Amazon GameLift Servers Toolkit
 
-This repository contains sample scripts and code snippets that we've found useful for solving different tasks when working with Amazon GameLift. These scripts and samples are intended for guidance only, and you always have to validate your own implementation for security and operational readiness.
+This repository contains sample scripts and code snippets that we've found useful for solving different tasks when working with Amazon GameLift Servers. These scripts and samples are intended for guidance only, and you always have to validate your own implementation for security and operational readiness.
 
 ## Getting started
 
@@ -20,7 +20,7 @@ Navigate to the subfolders for different code samples.
 ## List of samples
 
 * [Production Deployment Sample Script](/production-deployment-sample-script/README.md)
-* [Development Instance with Amazon GameLift Anywhere and Amazon GameLift Agent](/development-instance-with-amazon-gamelift-anywhere-and-gamelift-agent/README.md)
+* [Development Instance with Amazon GameLift Servers Anywhere and Amazon GameLift Agent](/development-instance-with-amazon-gamelift-anywhere-and-gamelift-agent/README.md)
 * [Building Amazon GameLift Server SDK for Unreal Engine and Amazon Linux](/building-gamelift-server-sdk-for-unreal-engine-and-amazon-linux/)
 
 ## Security
