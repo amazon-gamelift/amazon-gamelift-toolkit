@@ -2,17 +2,17 @@
 
 # Overview
 
-`Fast Build Update Tool` is a command-line application that can be used to quickly update a game server build in your Amazon GameLift fleet by bypassing the typical build and release process supported by Amazon GameLift.
+`Fast Build Update Tool` is a command-line application that can be used to quickly update a game server build in your Amazon GameLift Servers fleet by bypassing the typical build and release process supported by Amazon GameLift Servers.
 
-Typically updating a build in Amazon GameLift requires uploading the build, creating a new fleet, waiting for the fleet to transition to ACTIVE, and then redirecting any traffic to the new fleet. This process is a great way to manage updates in most cases (production, QA, etc), but can be quite time-consuming during development when you want to quickly iterate on code and changes.
+Typically updating a build in Amazon GameLift Servers requires uploading the build, creating a new fleet, waiting for the fleet to transition to ACTIVE, and then redirecting any traffic to the new fleet. This process is a great way to manage updates in most cases (production, QA, etc), but can be quite time-consuming during development when you want to quickly iterate on code and changes.
 
 With the Fast Build Update Tool, you can copy and overwrite a game server build onto one or more instances in an existing fleet, and then restart any running game server processes with your changes.
 
-Special thanks to [Rushdown Studios](https://www.rushdownstudio.com/) for developing this tool in consultation with the Amazon GameLift team.
+Special thanks to [Rushdown Studios](https://www.rushdownstudio.com/) for developing this tool in consultation with the Amazon GameLift Servers team.
 
 ## Glossary
 
-Many terms around Amazon GameLift and game servers can be used interchangeably or have more than one meaning. We will use the following language for consistency:
+Many terms around Amazon GameLift Servers and game servers can be used interchangeably or have more than one meaning. We will use the following language for consistency:
 
 * **Build**: The file or files that are used to run your game server.
 * **Executable**: The main executable that is used to start your game server.
@@ -21,15 +21,15 @@ Many terms around Amazon GameLift and game servers can be used interchangeably o
 
 ## ⚠️Limitations and Recommendations⚠️
 
-1. **❗IMPORTANT** This tool should only be used for development, and internal environments **only**! It is highly recommended that any player-facing builds continue to use the normal build release process supported by Amazon GameLift!
+1. **❗IMPORTANT** This tool should only be used for development, and internal environments **only**! It is highly recommended that any player-facing builds continue to use the normal build release process supported by Amazon GameLift Servers!
 1. This tool updates builds on instances that are currently deployed in a fleet. Any new instances that are added to the fleet (such as scaling out or replacing an instance) will be deployed with the original uploaded build. We very strongly recommend using this tool to quickly test updates as a complement to the normal build release process, **even in development environments**. We recommend using this tool with:
-    * Static fleets that do not auto-scale new instances. New instances will run the original build uploaded to Amazon GameLift, not your updated version from this tool.
+    * Static fleets that do not auto-scale new instances. New instances will run the original build uploaded to Amazon GameLift Servers, not your updated version from this tool.
     * On-Demand Instances. If you use Spot Instances, you will lose changes that you have uploaded with this tool if the instance is interrupted and replaced.
-1. This tool bypasses some of the protections provided by Amazon GameLift when you upload a build and create a new fleet. If this tool is used improperly, or is run with a broken server build, instances in your fleet could enter a broken state. Since this tool is meant for development only, scale the fleet down to 0 instances and back up to return the fleet to a healthy state with your original uploaded build.
+1. This tool bypasses some of the protections provided by Amazon GameLift Servers when you upload a build and create a new fleet. If this tool is used improperly, or is run with a broken server build, instances in your fleet could enter a broken state. Since this tool is meant for development only, scale the fleet down to 0 instances and back up to return the fleet to a healthy state with your original uploaded build.
 1. Only one execution of this tool should be run against a single fleet at a time.
 1. If possible, try to keep the size of your server builds small. This tool works by copying a game server build to each instance in the fleet individually. If you have very large server builds, this can be a time-consuming operation.
     * This tool supports partial build updates. If you confidently know which files have changed between your local build and the build running on the instance, you can actually call this tool with a `zip` file containing: any files that have changed, and the executable files defined in the runtime configuration of the fleet. If you decide to do a partial update, it is **CRUCIAL** that the location of these zipped files **exactly** matches the location of these files in the build that was originally uploaded!
-1. In order for this tool to work, it automatically opens a port on your fleet for a range of IP addresses specified by you. It does not remove this access after it has finished running. If you would like to close this port, you will currently have to do so by updating the fleet's EC2 port settings either through the Amazon GameLift console or the AWS CLI (`aws gamelift update-fleet-port-settings`).
+1. In order for this tool to work, it automatically opens a port on your fleet for a range of IP addresses specified by you. It does not remove this access after it has finished running. If you would like to close this port, you will currently have to do so by updating the fleet's EC2 port settings either through the Amazon GameLift Servers console or the AWS CLI (`aws gamelift update-fleet-port-settings`).
 
 
 ## How it Works
@@ -74,14 +74,14 @@ The basic flow this tool follows is:
     * You will need access to a server build for your game.
     * This tool requires that the build is compressed to a `.zip` file (there are more detailed instructions on how to set this up later in the document).
 1. **Fleet resource**
-    * To take advantage of this tool you must have a pre-existing Amazon GameLift fleet that runs on managed EC2 instances.
+    * To take advantage of this tool you must have a pre-existing Amazon GameLift Servers fleet that runs on managed EC2 instances.
 1. **Go**
     * This project is written in Go. You will need Go 1.21.11 or newer compile the source. [Instructions to download and install Go can be found here.](https://go.dev/doc/install)
 1. **AWS CLI**
     * You will need to have the [AWS CLI](https://aws.amazon.com/cli/) installed on your local machine.
     * Make sure you have the [default region configured](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html) as the tool utilizes that to define the fleet location.
 1. **AWS CLI SSM Plugin**
-    * Amazon GameLift uses [SSM](https://docs.aws.amazon.com/systems-manager/latest/userguide/ssm-agent.html) to manage remote instance connections. **[In order to use SSM you will need to install the SSM CLI plugin from Amazon. You can find instructions to do this here.](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)**
+    * Amazon GameLift Servers uses [SSM](https://docs.aws.amazon.com/systems-manager/latest/userguide/ssm-agent.html) to manage remote instance connections. **[In order to use SSM you will need to install the SSM CLI plugin from Amazon. You can find instructions to do this here.](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)**
 1. **Valid IAM Credentials**
     * You must have valid IAM credentials in order to run this tool.
     * This tool looks for AWS credentials in the default locations supported by the AWS CLI (environment variables, `~/.aws/credentials`, etc...). [The different configuration options are outlined here.](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-configure.html)
@@ -149,7 +149,7 @@ After following these steps you should have a working executable of the tool (th
 
 ### Finding your Fleet ID
 
-You will need to know the fleet ID and AWS Region of the fleet you are trying to update in order to run this tool. The simplest way to find your fleet ID is by looking in the Amazon GameLift console (the fleet ID starts with the `fleet-` prefix).
+You will need to know the fleet ID and AWS Region of the fleet you are trying to update in order to run this tool. The simplest way to find your fleet ID is by looking in the Amazon GameLift Servers console (the fleet ID starts with the `fleet-` prefix).
 
 If you do not have access to the AWS web console, you can find your fleet using the AWS CLI. First list all fleets available in your region:
 
@@ -190,7 +190,7 @@ This tool requires a `.zip` file containing your game server build as input. Thi
 
 The path to the executable in the zip file must match the launch path in the runtime configuration that the fleet was initially configured with.
 
-As an example, if you originally uploaded a build to Amazon GameLift with the following directory structure:
+As an example, if you originally uploaded a build to Amazon GameLift Servers with the following directory structure:
 
 ```sh
 ├── bin
@@ -245,7 +245,7 @@ $my_ip=(Invoke-WebRequest https://checkip.amazonaws.com).Content.TrimEnd()
 $my_ip
 ```
 
-Both Amazon GameLift and this tool use CIDR notation to denote a range of IP addresses. If you would like to lock things down to a single IP address you would simply apply the `/32` suffix to your IP address (`127.0.0.1/32`, or `$my_ip/32`).
+Both Amazon GameLift Servers and this tool use CIDR notation to denote a range of IP addresses. If you would like to lock things down to a single IP address you would simply apply the `/32` suffix to your IP address (`127.0.0.1/32`, or `$my_ip/32`).
 
 If you would like a more complicated setup, you can read more about how CIDR notation works [here.](https://aws.amazon.com/what-is/cidr/#:~:text=CIDR%20notation%20represents%20an%20IP,1.0%2F22.)
 
@@ -337,7 +337,7 @@ There are a number of steps you can take to help debug other issues.
     * By default, this tool writes remote instance logs to the `fast-build-update-tool-logs` folder for the most recent tool run, and `fast-build-update-tool-logs-prev` for the previous run.
     * This folder will contain log output of the remote commands run during the server update process. This may provide insight into issues.
 1. Remotely access the instance:
-    * Amazon GameLift provides utilities for remotely accessing your instances outlined [here](https://docs.aws.amazon.com/gamelift/latest/developerguide/fleets-remote-access.html).
+    * Amazon GameLift Servers provides utilities for remotely accessing your instances outlined [here](https://docs.aws.amazon.com/gamelift/latest/developerguide/fleets-remote-access.html).
     * You may be able to diagnose potential issues just by looking around the file system of the remote instance.
         * Windows builds are found in the `C:\game` folder on the remote instance.
         * Linux builds are found in the `/local/game` folder on the remote instance.
