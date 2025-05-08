@@ -1,7 +1,7 @@
 FROM public.ecr.aws/amazonlinux/amazonlinux:latest as build-server
 
 # Install dependencies
-RUN yum install -y gcc-c++ gdb cmake3 git wget openssl openssl-devel tar perl sudo
+RUN yum install -y gcc-c++ gdb cmake3 git wget tar perl sudo
 
 # Install correct OpenSSL version. NOTE: You might need to change this based on your Unreal Engine 5 version and the OpenSSL version it utilizes
 RUN wget https://github.com/openssl/openssl/archive/refs/tags/OpenSSL_1_1_1n.tar.gz && \
