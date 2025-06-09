@@ -1,5 +1,8 @@
 # Building the Amazon GameLift Server SDK for Unreal Engine 5 on Amazon Linux
 
+> **[Important]** Starting with the [Amazon GameLift Servers Plugin for Unreal Engine Release 3.0.0](https://github.com/amazon-gamelift/amazon-gamelift-plugin-unreal/releases), manual building of the Amazon GameLift Server SDK for Linux cross-compiling is no longer required.
+> This guide is now deprecated and archived in the `feature-building-gamelift-server-sdk-for-unreal-engine-and-amazon-linux` branch for reference, in case it's still needed for certain workflows.
+
 This quick guide shows how to build the binaries for the Amazon GameLift Server SDK for Unreal Engine 5 builds on Amazon Linux 2023. The build is done in the AWS Cloud Shell without the need to install any additional tools on your local system. The output binaries can be used with the Amazon GameLift Servers Plugin for Unreal Engine.
 
 **NOTE:** The fastest way to run the build is to use AWS CloudShell with the instructions below without the need to install any tools locally. If you do however want to run it locally, the only things you need a [git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git) and [docker](https://docs.docker.com/get-docker/) installed and you can run the build on MacOS terminal or Windows [WSL](https://learn.microsoft.com/en-us/windows/wsl/install). 
@@ -25,7 +28,9 @@ It's important to use the same OpenSSL version as your Unreal Engine 5 version u
 
 ```bash
 git clone https://github.com/aws/amazon-gamelift-toolkit.git
-cd amazon-gamelift-toolkit/building-gamelift-server-sdk-for-unreal-engine-and-amazon-linux/
+cd amazon-gamelift-toolkit
+git checkout feature-building-gamelift-server-sdk-for-unreal-engine-and-amazon-linux
+cd building-gamelift-server-sdk-for-unreal-engine-and-amazon-linux/
 ```
 
 **Run** the following command in CloudShell to build the SDK:
