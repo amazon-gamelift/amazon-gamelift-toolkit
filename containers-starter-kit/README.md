@@ -101,6 +101,10 @@ In case your Amazon GameLift Servers Containers fleet doesn't become active when
 
 The log output should be able to give you insights in where it's failing.
 
+**Note on using TCP**
+
+If you set the deployment to use TCP, this configuration will be set for the Container Group Definition deployments, but **not** the fleet correctly. As the automation that configures instance inbound permissions defaults to UDP, you will need to set this field [`InstanceInboundPermissions`](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-gamelift-containerfleet.html#cfn-gamelift-containerfleet-instanceinboundpermissions) for the Container Fleet to allow 0.0.0.0/0 access with TCP in the CloudFormation template and match the connection ports used (default 4192->).
+
 # Architecture
 
 ![alt text](architecture.png "Solution architecture")
