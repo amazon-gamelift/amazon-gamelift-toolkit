@@ -47,7 +47,7 @@ In case your game server requires additional packages or configuration on the co
 
 **NOTE:** Uploading a large build (such as an Unreal server) can be slow through the browser. It's a lot faster using the [AWS CLI](https://docs.aws.amazon.com/cli/latest/reference/s3/cp.html).
 
-You can follow the build process in CodeBuild to make sure it succeeds without errors. If you want to see the steps of the build process, select the *Build Details* tab and review the *BuildSpec*. This includes setting up the SDK, building your container, and deploying a new container group to the fleet. After the build succeeds, you can use the Amazon GameLift Servers console to review the deployment of the container group to your Amazon GameLift Servers fleet. Once the fleet is active, you can move on to testing with a game session.
+You can follow the build process in CodeBuild to make sure it succeeds without errors. If you want to see the steps of the build process, select the *Build Details* tab and review the *BuildSpec*. This includes setting up the SDK, building your container, and deploying a new container group to the fleet. After the build succeeds, you can use the Amazon GameLift Servers console to review the deployment of the container group to your Amazon GameLift Servers fleet. Once the fleet is active, you can move on to testing with a game session. See [Debugging your deployment](#debugging-your-deployment) if encounter any issues such as deployment being impaired.
 
 # Test by creating a game session
 
