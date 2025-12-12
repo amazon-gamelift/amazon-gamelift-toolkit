@@ -19,6 +19,7 @@ Navigate to the subfolders for different code samples.
 
 ## List of samples
 
+* [Event-based session placement with Queues](/event-based-session-placement/)
 * [Production Deployment Sample Script](/production-deployment-sample-script/README.md)
 * [Development Instance with Amazon GameLift Servers Anywhere and Amazon GameLift Agent](/development-instance-with-amazon-gamelift-anywhere-and-gamelift-agent/README.md)
 * [Building Amazon GameLift Server SDK for Unreal Engine and Amazon Linux](https://github.com/amazon-gamelift/amazon-gamelift-toolkit/tree/feature-building-gamelift-server-sdk-for-unreal-engine-and-amazon-linux/building-gamelift-server-sdk-for-unreal-engine-and-amazon-linux)
