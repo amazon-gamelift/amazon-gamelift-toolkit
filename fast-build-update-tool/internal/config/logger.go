@@ -70,7 +70,7 @@ func (a *ApplicationLogger) initializeSlog(verbose bool) (err error) {
 	if verbose {
 		if a.logFile == nil {
 			// If we have verbose logs, use the default slog.TextHandler, and write everything to STDOUT, and a log file
-			a.logFile, err = os.OpenFile(filepath.Join(a.logsDir, logFileName), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+			a.logFile, err = os.OpenFile(filepath.Join(a.logsDir, logFileName), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 			if err != nil {
 				return fmt.Errorf("error creating log file %w", err)
 			}

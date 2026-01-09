@@ -66,7 +66,7 @@ func (s *SSHCommandRunner) Run(ctx context.Context, remotePublicKey ssh.PublicKe
 
 	logFilePath := config.GetLogPathForFile(fmt.Sprintf("%s-ssh-command.log", s.instanceId))
 	// Set up a log file so we log out any remote output we get from the instance
-	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE, 0666)
+	logFile, err := os.OpenFile(logFilePath, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return fmt.Errorf("error creating log file for ssh command runner: %w", err)
 	}
