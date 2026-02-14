@@ -1,6 +1,6 @@
 module github.com/aws/amazon-gamelift-toolkit/fast-build-update-tool
 
-go 1.21
+go 1.24.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.30.0
@@ -10,7 +10,7 @@ require (
 	github.com/aymanbagabas/go-pty v0.2.2
 	github.com/pterm/pterm v0.12.79
 	github.com/stretchr/testify v1.9.0
-	golang.org/x/crypto v0.31.0
+	golang.org/x/crypto v0.45.0
 )
 
 require (
@@ -37,8 +37,8 @@ require (
 	github.com/rivo/uniseg v0.4.4 // indirect
 	github.com/u-root/u-root v0.11.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/term v0.27.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/term v0.37.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
