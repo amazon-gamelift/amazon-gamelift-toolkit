@@ -10,5 +10,5 @@ require (
 	github.com/google/uuid v1.5.0 // indirect
 	github.com/gorilla/websocket v1.5.1 // indirect
 	github.com/sethvargo/go-retry v0.2.4 // indirect
-	golang.org/x/net v0.20.0 // indirect
+	golang.org/x/net v0.33.0 // indirect
 )
