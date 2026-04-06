@@ -17,6 +17,7 @@ A UDP relay testing tool for validating Amazon GameLift Servers player gateway i
 - [Runtime configuration](#runtime-configuration)
   - [set-degradation](#set-degradation)
   - [replace-token](#replace-token)
+  - [get-player-connection-details](#get-player-connection-details)
 - [How it works](#how-it-works)
   - [Traffic flow](#traffic-flow)
 - [Testing](#testing)
@@ -97,7 +98,7 @@ On startup, the app will log the list of client-side endpoints. The game clients
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--testing-app-ip` | `-i` | `127.0.0.1` | IP address for the testing app to listen on |
-| `--udp-endpoint-count` | `-u` | `3` | Number of UDP endpoints (1-10) |
+| `--udp-endpoint-count` | `-u` | `3` | Number of UDP endpoints per player (1-10) |
 | `--tool-port-range` | `-r` | (auto-generated) | Port range for allocation: `<start>-<end>` |
 | `--player-count` | `-n` | `1` | Number of players (1 token is generated per player) |
 | `--report-file-path` | `-f` | `./report.txt` | Path for invalid packet reports |
@@ -113,12 +114,11 @@ Basic usage with custom endpoint count:
   --udp-endpoint-count 5
 ```
 
-With token validation and custom port range:
+With custom port range:
 ```bash
 ./player-gateway-testing-app \
   --game-server-ip game.example.com \
   --game-server-port 9000 \
-  --token "MySecretToken" \
   --tool-port-range 10000-10100
 ```
 
@@ -159,13 +159,41 @@ Generate a new token and replace the existing token for a specific player. The o
 
 ```bash
 ./player-gateway-testing-app replace-token \
-  --player-number 1 \
-  --port 8000
+  --player-number 1
 ```
 
 Flags:
 - `--player-number`: The player number (required)
 - `--port`: Any port of the running testing app (default: 8000)
+
+### get-player-connection-details
+
+Get connection details for specified players. This simulates the GetPlayerConnectionDetails API and returns the token and endpoints for each player.
+
+```bash
+./player-gateway-testing-app get-player-connection-details \
+  --player-numbers 1,2,3
+```
+
+Flags:
+- `--player-numbers`: Comma-separated list of player numbers (required)
+- `--port`: Any port of the running testing app (default: 8000)
+
+Example output:
+```json
+[
+  {
+    "PlayerNumber": "1",
+    "Endpoints": [
+      {"IpAddress": "127.0.0.1", "Port": 8000},
+      {"IpAddress": "127.0.0.1", "Port": 8001},
+      {"IpAddress": "127.0.0.1", "Port": 8002}
+    ],
+    "PlayerGatewayToken": "YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXoxMg==",
+    "Expiration": 1700000000
+  }
+]
+```
 
 ## Testing
 

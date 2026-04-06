@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -105,6 +106,44 @@ func SendUDPMessage(port int, message string) error {
 	}
 
 	return nil
+}
+
+// SendUDPMessageWithResponse sends a UDP message and waits for a response.
+//
+// Parameters:
+//   - port: the port to send the message to
+//   - message: the message to send
+//
+// Returns:
+//   - string: the response received
+//   - error: nil on success, error if connection, write, or read fails
+func SendUDPMessageWithResponse(port int, message string) (string, error) {
+	const responseTimeout = 5 * time.Second
+
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return "", err
+	}
+
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+
+	conn.SetReadDeadline(time.Now().Add(responseTimeout))
+
+	if _, err = conn.Write([]byte(message)); err != nil {
+		return "", err
+	}
+
+	buf := make([]byte, 65535)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return "", err
+	}
+
+	return string(buf[:n]), nil
 }
 
 // ValidateNumberWithinBounds validates that a value is within the specified bounds.

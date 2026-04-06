@@ -33,11 +33,12 @@ type StatsEvent struct {
 
 // StatsSnapshot represents an immutable snapshot of current metrics
 type StatsSnapshot struct {
-	Uptime            time.Duration  // Total uptime of application
-	IPAddress         string         // IP address the testing app is bound to
-	EndpointStats     []ProxyStats   // List of stats per proxy
-	PlayerConnections map[int]bool   // Player number -> connected
-	ValidTokens       map[int]string // Player number -> base64-encoded token
+	Uptime            time.Duration    // Total uptime of application
+	IPAddress         string           // IP address the testing app is bound to
+	EndpointStats     []ProxyStats     // List of stats per proxy
+	PlayerConnections map[int]bool     // Player number -> connected
+	ValidTokens       map[int]string   // Player number -> base64-encoded token
+	PlayerEndpoints   map[int][]int    // Player number -> list of endpoint ports
 }
 
 // StatsCollector aggregates statistics events from proxy components
@@ -48,6 +49,7 @@ type StatsCollector struct {
 	playerConnections map[int]bool        // player number -> active connection
 	tokenManager      *token.TokenManager // token manager used to get info about valid tokens
 	eventChan         chan StatsEvent     // channel for receiving events from publishers
+	playerEndpoints   map[int][]int       // player number -> list of endpoint ports
 	mu                sync.RWMutex
 }
 
@@ -56,15 +58,23 @@ type StatsCollector struct {
 // Parameters:
 //   - tokenManager: token manager used to retrieve valid token information
 //   - startPort: starting port number for proxy endpoints
-//   - endpointCount: number of proxy endpoints to initialize stats for
+//   - endpointCount: number of UDP endpoints per player
+//   - playerCount: number of players
 //   - ipAddress: IP address the testing app is bound to
 //
 // Returns:
 //   - *StatsCollector: configured stats collector ready to start
-func NewStatsCollector(tokenManager *token.TokenManager, startPort, endpointCount int, ipAddress string) *StatsCollector {
+func NewStatsCollector(tokenManager *token.TokenManager, startPort, endpointCount, playerCount int, ipAddress string) *StatsCollector {
 	endpointStats := make(map[int]*ProxyStats)
-	for i := range endpointCount {
-		endpointStats[startPort+i] = &ProxyStats{Port: startPort + i}
+	playerEndpoints := make(map[int][]int)
+
+	port := startPort
+	for playerNum := 1; playerNum <= playerCount; playerNum++ {
+		for range endpointCount {
+			endpointStats[port] = &ProxyStats{Port: port}
+			playerEndpoints[playerNum] = append(playerEndpoints[playerNum], port)
+			port++
+		}
 	}
 
 	return &StatsCollector{
@@ -74,6 +84,7 @@ func NewStatsCollector(tokenManager *token.TokenManager, startPort, endpointCoun
 		playerConnections: make(map[int]bool),
 		tokenManager:      tokenManager,
 		eventChan:         make(chan StatsEvent, 100),
+		playerEndpoints:   playerEndpoints,
 	}
 }
 
@@ -210,6 +221,13 @@ func (sc *StatsCollector) GetSnapshot() StatsSnapshot {
 		playerConnectionsCopy[playerNum] = connected
 	}
 
+	playerEndpointsCopy := make(map[int][]int, len(sc.playerEndpoints))
+	for playerNum, ports := range sc.playerEndpoints {
+		portsCopy := make([]int, len(ports))
+		copy(portsCopy, ports)
+		playerEndpointsCopy[playerNum] = portsCopy
+	}
+
 	var validTokens map[int]string
 	if sc.tokenManager != nil {
 		validTokens = sc.tokenManager.GetValidTokens()
@@ -221,5 +239,6 @@ func (sc *StatsCollector) GetSnapshot() StatsSnapshot {
 		EndpointStats:     endpointStatsCopy,
 		PlayerConnections: playerConnectionsCopy,
 		ValidTokens:       validTokens,
+		PlayerEndpoints:   playerEndpointsCopy,
 	}
 }

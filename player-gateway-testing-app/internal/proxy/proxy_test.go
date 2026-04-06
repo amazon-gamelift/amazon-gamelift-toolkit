@@ -21,7 +21,7 @@ func TestNewClientSideProxy(t *testing.T) {
 	destinationAddr, _ := net.ResolveUDPAddr("udp", testutil.TestDestinationAddr)
 	tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
 
-	proxy, err := NewClientSideProxy(testutil.TestProxyAddr, 0, destinationAddr, tokenManager, testutil.TestReportFilePath, nil)
+	proxy, err := NewClientSideProxy(testutil.TestProxyAddr, 0, destinationAddr, tokenManager, 1, testutil.TestReportFilePath, nil, nil)
 	assert.NoError(t, err)
 	defer proxy.Close()
 
@@ -35,7 +35,7 @@ func TestNewClientProxy_NilTokenManager(t *testing.T) {
 
 	destinationAddr, _ := net.ResolveUDPAddr("udp", testutil.TestDestinationAddr)
 
-	proxy, err := NewClientSideProxy(testutil.TestProxyAddr, 0, destinationAddr, nil, testutil.TestReportFilePath, nil)
+	proxy, err := NewClientSideProxy(testutil.TestProxyAddr, 0, destinationAddr, nil, 1, testutil.TestReportFilePath, nil, nil)
 	assert.Error(t, err, "Expected error but didn't receive one")
 	assert.Equal(t, proxy, (*Proxy)(nil), "Expected client-side proxy to be nil")
 }
@@ -71,7 +71,7 @@ func TestProxy_LocalAddr(t *testing.T) {
 	destinationAddr, _ := net.ResolveUDPAddr("udp", testutil.TestDestinationAddr)
 	tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
 
-	proxy, err := NewClientSideProxy(testutil.TestProxyAddr, 0, destinationAddr, tokenManager, testutil.TestReportFilePath, nil)
+	proxy, err := NewClientSideProxy(testutil.TestProxyAddr, 0, destinationAddr, tokenManager, 1, testutil.TestReportFilePath, nil, nil)
 	assert.NoError(t, err)
 	defer proxy.Close()
 
@@ -89,7 +89,7 @@ func TestProxy_Close(t *testing.T) {
 	destinationAddr, _ := net.ResolveUDPAddr("udp", testutil.TestDestinationAddr)
 	tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
 
-	proxy, err := NewClientSideProxy(testutil.TestProxyAddr, 0, destinationAddr, tokenManager, testutil.TestReportFilePath, nil)
+	proxy, err := NewClientSideProxy(testutil.TestProxyAddr, 0, destinationAddr, tokenManager, 1, testutil.TestReportFilePath, nil, nil)
 	assert.NoError(t, err)
 
 	err = proxy.Close()
@@ -102,7 +102,7 @@ func TestProxy_StartStop(t *testing.T) {
 	destinationAddr, _ := net.ResolveUDPAddr("udp", testutil.TestDestinationAddr)
 	tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
 
-	proxy, err := NewClientSideProxy(testutil.TestProxyAddr, 0, destinationAddr, tokenManager, testutil.TestReportFilePath, nil)
+	proxy, err := NewClientSideProxy(testutil.TestProxyAddr, 0, destinationAddr, tokenManager, 1, testutil.TestReportFilePath, nil, nil)
 	assert.NoError(t, err)
 	defer proxy.Close()
 
@@ -133,7 +133,7 @@ func TestProxy_ClientCanSendAndReceiveThroughProxy(t *testing.T) {
 	tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
 
 	// Create proxy
-	proxy, err := NewClientSideProxy(testutil.TestProxyAddr, 0, gameServer.LocalAddr().(*net.UDPAddr), tokenManager, testutil.TestReportFilePath, nil)
+	proxy, err := NewClientSideProxy(testutil.TestProxyAddr, 0, gameServer.LocalAddr().(*net.UDPAddr), tokenManager, 1, testutil.TestReportFilePath, nil, nil)
 	assert.NoError(t, err)
 	defer proxy.Close()
 
@@ -183,7 +183,7 @@ func TestProxy_Start_ContinuesOnPacketDropped(t *testing.T) {
 	destinationAddr, _ := net.ResolveUDPAddr("udp", testutil.TestDestinationAddr)
 	tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
 
-	proxy, err := NewClientSideProxy(testutil.TestProxyAddr, 0, destinationAddr, tokenManager, testutil.TestReportFilePath, nil)
+	proxy, err := NewClientSideProxy(testutil.TestProxyAddr, 0, destinationAddr, tokenManager, 1, testutil.TestReportFilePath, nil, nil)
 	assert.NoError(t, err)
 	defer proxy.Close()
 

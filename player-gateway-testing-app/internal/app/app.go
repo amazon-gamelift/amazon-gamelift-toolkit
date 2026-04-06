@@ -95,7 +95,7 @@ func (a *App) setupProxies(c config.Config) error {
 	if err != nil {
 		return err
 	}
-	a.statsCollector = stats.NewStatsCollector(a.tokenManager, startPort, c.UDPEndpointCount, c.IPAddress)
+	a.statsCollector = stats.NewStatsCollector(a.tokenManager, startPort, c.UDPEndpointCount, c.PlayerCount, c.IPAddress)
 
 	if err := a.createServerSideProxy(c); err != nil {
 		return err
@@ -153,9 +153,11 @@ func (a *App) createServerSideProxy(c config.Config) error {
 }
 
 // createClientSideProxies creates multiple client-facing proxies that accept client connections.
+// Each player gets their own set of endpoints.
 //
 // Parameters:
 //   - c: configuration containing client IP address, port range, and endpoint count
+//   - startPort: starting port number for the first player's endpoints
 //
 // Returns:
 //   - error: nil on success, error if client proxy creation fails
@@ -165,22 +167,28 @@ func (a *App) createClientSideProxies(c config.Config, startPort int) error {
 		return fmt.Errorf("unable to parse UDP address when creating client-side proxy")
 	}
 
-	a.clientSideProxies = make([]*proxy.Proxy, 0, c.UDPEndpointCount)
-	for i := range c.UDPEndpointCount {
-		port := startPort + i
+	totalEndpoints := c.UDPEndpointCount * c.PlayerCount
+	a.clientSideProxies = make([]*proxy.Proxy, 0, totalEndpoints)
 
-		csp, err := proxy.NewClientSideProxy(
-			c.IPAddress,
-			port,
-			destinationAddr,
-			a.tokenManager,
-			c.ReportFilePath,
-			a.statsCollector.GetEventChannel(),
-		)
-		if err != nil {
-			return fmt.Errorf("failed to create client-side proxy %d: %w", i+1, err)
+	port := startPort
+	for playerNum := 1; playerNum <= c.PlayerCount; playerNum++ {
+		for i := range c.UDPEndpointCount {
+			csp, err := proxy.NewClientSideProxy(
+				c.IPAddress,
+				port,
+				destinationAddr,
+				a.tokenManager,
+				playerNum,
+				c.ReportFilePath,
+				a.statsCollector.GetEventChannel(),
+				a.statsCollector.GetSnapshot,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to create client-side proxy for player %d endpoint %d: %w", playerNum, i+1, err)
+			}
+			a.clientSideProxies = append(a.clientSideProxies, csp)
+			port++
 		}
-		a.clientSideProxies = append(a.clientSideProxies, csp)
 	}
 
 	return nil
@@ -190,14 +198,16 @@ func (a *App) findClientsideProxyPortRangeStart(c config.Config) (int, error) {
 	var startPort int
 	var err error
 
+	totalEndpoints := c.UDPEndpointCount * c.PlayerCount
 	if c.PortRange == "" {
 		const defaultStartSearchPort = 8000
 		const maxSearchPort = 65535
-		startPort, err = common.FindAvailablePortRange(defaultStartSearchPort, c.UDPEndpointCount, maxSearchPort)
+		startPort, err = common.FindAvailablePortRange(defaultStartSearchPort, totalEndpoints, maxSearchPort)
 		if err != nil {
 			return 0, fmt.Errorf("failed to find available port range: %w", err)
 		}
-		log.Printf("Auto-selected port range starting at %d for %d endpoints", startPort, c.UDPEndpointCount)
+		log.Printf("Auto-selected port range starting at %d for %d players with %d endpoints each (%d total)",
+			startPort, c.PlayerCount, c.UDPEndpointCount, totalEndpoints)
 	} else {
 		startPort, _, err = common.ParsePortRange(c.PortRange)
 		if err != nil {

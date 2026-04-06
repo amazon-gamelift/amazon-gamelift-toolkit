@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	getplayerconnectiondetails "github.com/amazon-gamelift/amazon-gamelift-toolkit/player-gateway-testing-app/cmd/get-player-connection-details"
 	replacetoken "github.com/amazon-gamelift/amazon-gamelift-toolkit/player-gateway-testing-app/cmd/replace-token"
 	setdegradation "github.com/amazon-gamelift/amazon-gamelift-toolkit/player-gateway-testing-app/cmd/set-degradation"
 	"github.com/amazon-gamelift/amazon-gamelift-toolkit/player-gateway-testing-app/internal/app"
@@ -39,6 +40,7 @@ func init() {
 
 	rootCmd.AddCommand(setdegradation.SetDegradation)
 	rootCmd.AddCommand(replacetoken.ReplaceToken)
+	rootCmd.AddCommand(getplayerconnectiondetails.GetPlayerConnectionDetails)
 }
 
 func run(cmd *cobra.Command, args []string) error {
