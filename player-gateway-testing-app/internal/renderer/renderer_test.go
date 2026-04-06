@@ -12,7 +12,7 @@ import (
 )
 
 func TestNewModel(t *testing.T) {
-	statsCollector := stats.NewStatsCollector(nil, 8000, 3, "127.0.0.1")
+	statsCollector := stats.NewStatsCollector(nil, 8000, 3, 1, "127.0.0.1")
 	_, cancel := context.WithCancel(context.Background())
 
 	model, err := NewModel(statsCollector, cancel)

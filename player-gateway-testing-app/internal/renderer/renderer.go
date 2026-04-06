@@ -53,6 +53,7 @@ func NewModel(statsCollector *stats.StatsCollector, cancelFunc context.CancelFun
 		return nil, fmt.Errorf("StatsCollector is nil")
 	}
 	endpointColumns := []table.Column{
+		{Title: "Player", Width: 6},
 		{Title: "Endpoint", Width: 10},
 		{Title: "Port", Width: 5},
 		{Title: "Packets with Valid Token", Width: 25},
@@ -62,7 +63,7 @@ func NewModel(statsCollector *stats.StatsCollector, cancelFunc context.CancelFun
 
 	endpointTable := table.New(
 		table.WithColumns(endpointColumns),
-		table.WithHeight(12),
+		table.WithHeight(13),
 	)
 
 	s := table.DefaultStyles()
@@ -114,11 +115,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case TickMsg:
 		m.snapshot = m.statsCollector.GetSnapshot()
 
+		// Calculate endpoints per player from the snapshot
+		endpointsPerPlayer := 0
+		if len(m.snapshot.PlayerEndpoints) > 0 {
+			endpointsPerPlayer = len(m.snapshot.PlayerEndpoints[1])
+		}
+
 		// Update table rows and packet totals
 		var endpointRows []table.Row
 		var totalValidPackets, totalMalformedPackets int64
 		for i := range m.snapshot.EndpointStats {
+			// Only show player number on first endpoint for that player
+			playerStr := ""
+			if endpointsPerPlayer > 0 && i%endpointsPerPlayer == 0 {
+				playerStr = fmt.Sprintf("%d", i/endpointsPerPlayer+1)
+			}
+
 			endpointRows = append(endpointRows, table.Row{
+				playerStr,
 				fmt.Sprintf("%d", i+1),
 				fmt.Sprintf("%d", m.snapshot.EndpointStats[i].Port),
 				fmt.Sprintf("%d", m.snapshot.EndpointStats[i].ValidPackets),

@@ -6,6 +6,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -28,14 +29,15 @@ const (
 
 // Proxy handles UDP traffic forwarding between clients and a destination server.
 type Proxy struct {
-	port                 int                     // The port the proxy is listening on
-	socket               *net.UDPConn            // Main proxy socket for listening to game-bound traffic
-	destinationAddr      *net.UDPAddr            // Address to forward game-bound traffic to
-	clientConnectionPool *ClientConnectionPool   // Pool for each client connection that has connected via this proxy
-	forwardToPlayerChan  chan ClientBoundData    // Channel for forwarding player-bound traffic
-	trafficHandler       TrafficHandler          // Handler for traffic on client/server proxy
-	packetLogger         *PacketLogger           // Logger for failed packets
-	statsEventChan       chan<- stats.StatsEvent // Channel for publishing stats events
+	port                 int                          // The port the proxy is listening on
+	socket               *net.UDPConn                 // Main proxy socket for listening to game-bound traffic
+	destinationAddr      *net.UDPAddr                 // Address to forward game-bound traffic to
+	clientConnectionPool *ClientConnectionPool        // Pool for each client connection that has connected via this proxy
+	forwardToPlayerChan  chan ClientBoundData         // Channel for forwarding player-bound traffic
+	trafficHandler       TrafficHandler               // Handler for traffic on client/server proxy
+	packetLogger         *PacketLogger                // Logger for failed packets
+	statsEventChan       chan<- stats.StatsEvent      // Channel for publishing stats events
+	statsSnapshotFunc    func() stats.StatsSnapshot   // Function to get stats snapshot for connection details
 }
 
 // NewClientSideProxy creates a new proxy with a client-side traffic handler.
@@ -45,24 +47,28 @@ type Proxy struct {
 //   - port: port number for the proxy to listen on
 //   - destinationAddr: target address to forward incoming traffic to
 //   - tokenManager: token manager for validating and parsing tokens
+//   - expectedPlayerNumber: player number that must use this endpoint
 //   - reportFilePath: path to file for logging failed packets
 //   - statsEventChan: optional channel for publishing stats events (can be nil)
+//   - statsSnapshotFunc: optional function to get stats snapshot for connection details (can be nil)
 //
 // Returns:
 //   - *Proxy: configured client-side proxy ready to start
 //   - error: nil on success, error if socket creation fails
-func NewClientSideProxy(proxyIP string, port int, destinationAddr *net.UDPAddr, tokenManager *token.TokenManager, reportFilePath string, statsEventChan chan<- stats.StatsEvent) (*Proxy, error) {
+func NewClientSideProxy(proxyIP string, port int, destinationAddr *net.UDPAddr, tokenManager *token.TokenManager, expectedPlayerNumber int, reportFilePath string, statsEventChan chan<- stats.StatsEvent, statsSnapshotFunc func() stats.StatsSnapshot) (*Proxy, error) {
 	if tokenManager == nil {
 		return nil, fmt.Errorf("token manager is nil")
 	}
 	handler := &ClientSideProxyTrafficHandler{
-		tokenManager: tokenManager,
-		rng:          rand.New(rand.NewSource(time.Now().UnixNano())),
+		tokenManager:         tokenManager,
+		expectedPlayerNumber: expectedPlayerNumber,
+		rng:                  rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 	proxy, err := newProxy(proxyIP, port, destinationAddr, handler, reportFilePath, statsEventChan)
 	if err != nil {
 		return nil, err
 	}
+	proxy.statsSnapshotFunc = statsSnapshotFunc
 	return proxy, nil
 }
 
@@ -86,8 +92,8 @@ func NewServerSideProxy(proxyIP string, port int, destinationAddr *net.UDPAddr, 
 	handler := &ServerSideProxyTrafficHandler{
 		tokenManager:           tokenManager,
 		clientSideProxySources: make(map[int][]*ClientSideProxyInfo),
-		nextSourceIndexByPort:  make(map[int]int),
-		recentMessages:         make(map[int][]*net.UDPAddr),
+		lastUsedSource:         make(map[int]*ClientSideProxyInfo),
+		nextSourceIndex:        make(map[int]int),
 	}
 	proxy, err := newProxy(proxyIP, port, destinationAddr, handler, reportFilePath, statsEventChan)
 	if err != nil {
@@ -218,6 +224,17 @@ func (p *Proxy) handleIncomingTraffic(ctx context.Context, buf []byte) error {
 				DegradationPercent: deg.Percentage,
 			})
 		}
+		if details, ok := result.ConfigCommand.(GetPlayerConnectionDetailsResult); ok {
+			var response string
+			if p.statsSnapshotFunc == nil {
+				response = `{"error":"stats snapshot not available"}`
+			} else {
+				response = p.buildConnectionDetailsJSON(details.PlayerNumbers)
+			}
+			if _, err := p.socket.WriteToUDP([]byte(response), sourceAddr); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 
@@ -292,4 +309,61 @@ func (p *Proxy) Close() error {
 //   - net.Addr: local address of the proxy socket
 func (p *Proxy) LocalAddr() net.Addr {
 	return p.socket.LocalAddr()
+}
+
+const tokenExpirationMinutes = 3
+
+type PlayerConnectionDetailsResponse struct {
+	PlayerConnectionDetails []PlayerConnectionDetail `json:"PlayerConnectionDetails"`
+}
+
+type PlayerConnectionDetail struct {
+	PlayerNumber       string                     `json:"PlayerNumber"`
+	Endpoints          []PlayerConnectionEndpoint `json:"Endpoints"`
+	PlayerGatewayToken string                     `json:"PlayerGatewayToken"`
+	Expiration         int64                      `json:"Expiration"`
+}
+
+type PlayerConnectionEndpoint struct {
+	IpAddress string `json:"IpAddress"`
+	Port      int    `json:"Port"`
+}
+
+func (p *Proxy) buildConnectionDetailsJSON(playerNumbers []int) string {
+	snapshot := p.statsSnapshotFunc()
+
+	requestedNumbers := make(map[int]bool)
+	for _, num := range playerNumbers {
+		requestedNumbers[num] = true
+	}
+
+	expiration := time.Now().Add(tokenExpirationMinutes * time.Minute).Unix()
+	details := make([]PlayerConnectionDetail, 0)
+	for playerNum, ports := range snapshot.PlayerEndpoints {
+		if len(requestedNumbers) > 0 && !requestedNumbers[playerNum] {
+			continue
+		}
+
+		endpoints := make([]PlayerConnectionEndpoint, 0, len(ports))
+		for _, port := range ports {
+			endpoints = append(endpoints, PlayerConnectionEndpoint{
+				IpAddress: snapshot.IPAddress,
+				Port:      port,
+			})
+		}
+
+		details = append(details, PlayerConnectionDetail{
+			PlayerNumber:       strconv.Itoa(playerNum),
+			Endpoints:          endpoints,
+			PlayerGatewayToken: snapshot.ValidTokens[playerNum],
+			Expiration:         expiration,
+		})
+	}
+
+	response := PlayerConnectionDetailsResponse{
+		PlayerConnectionDetails: details,
+	}
+
+	jsonBytes, _ := json.Marshal(response)
+	return string(jsonBytes)
 }

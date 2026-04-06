@@ -18,7 +18,8 @@ import (
 func TestClientSideProxyTrafficHandler_PreprocessServerBoundTraffic_NormalTraffic(t *testing.T) {
 	tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
 	handler := &ClientSideProxyTrafficHandler{
-		tokenManager: tokenManager,
+		tokenManager:         tokenManager,
+		expectedPlayerNumber: 1,
 	}
 
 	// Create valid token data
@@ -32,6 +33,39 @@ func TestClientSideProxyTrafficHandler_PreprocessServerBoundTraffic_NormalTraffi
 	// Verify hash was stripped but player number remains
 	expectedData := "1|" + testutil.TestMessage
 	assert.Equal(t, string(result.Data), expectedData)
+}
+
+func TestClientSideProxyTrafficHandler_PreprocessServerBoundTraffic_WrongPlayerEndpoint(t *testing.T) {
+	tokenManager := testutil.CreateTestTokenManager(2)
+	handler := &ClientSideProxyTrafficHandler{
+		tokenManager:         tokenManager,
+		expectedPlayerNumber: 2, // Endpoint assigned to player 2
+	}
+
+	// Send player 1's token to player 2's endpoint
+	player1Token := tokenManager.GetDecodedTokenForPlayer(1)
+	data := []byte(player1Token + testutil.TestMessage)
+	addr, _ := net.ResolveUDPAddr("udp", testutil.TestSourceAddr)
+
+	_, err := handler.PreprocessServerBoundTraffic(data, addr)
+	assert.Error(t, err, "Expected error when player uses wrong endpoint")
+}
+
+func TestClientSideProxyTrafficHandler_PreprocessServerBoundTraffic_CorrectPlayerEndpoint(t *testing.T) {
+	tokenManager := testutil.CreateTestTokenManager(2)
+	handler := &ClientSideProxyTrafficHandler{
+		tokenManager:         tokenManager,
+		expectedPlayerNumber: 2, // Endpoint assigned to player 2
+	}
+
+	// Send player 2's token to player 2's endpoint - should succeed
+	player2Token := tokenManager.GetDecodedTokenForPlayer(2)
+	data := []byte(player2Token + testutil.TestMessage)
+	addr, _ := net.ResolveUDPAddr("udp", testutil.TestSourceAddr)
+
+	result, err := handler.PreprocessServerBoundTraffic(data, addr)
+	assert.NoError(t, err)
+	assert.Equal(t, result.PlayerNumber, 2)
 }
 
 func TestClientSideProxyTrafficHandler_PreprocessServerBoundTraffic_ConfigCommand(t *testing.T) {
@@ -57,8 +91,9 @@ func TestClientSideProxyTrafficHandler_PreprocessServerBoundTraffic_ConfigComman
 		t.Run(tt.name, func(t *testing.T) {
 			tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
 			handler := &ClientSideProxyTrafficHandler{
-				tokenManager: tokenManager,
-				rng:          rand.New(rand.NewSource(time.Now().UnixNano())),
+				tokenManager:         tokenManager,
+				expectedPlayerNumber: 1,
+				rng:                  rand.New(rand.NewSource(time.Now().UnixNano())),
 			}
 
 			addr, _ := net.ResolveUDPAddr("udp", testutil.TestSourceAddr)
@@ -73,7 +108,9 @@ func TestClientSideProxyTrafficHandler_PreprocessServerBoundTraffic_ConfigComman
 }
 
 func TestClientSideProxyTrafficHandler_HandleClientBoundTraffic(t *testing.T) {
-	handler := &ClientSideProxyTrafficHandler{}
+	handler := &ClientSideProxyTrafficHandler{
+		expectedPlayerNumber: 1,
+	}
 
 	socket := testutil.CreateTestUDPSocket(t)
 	defer socket.Close()
@@ -128,8 +165,9 @@ func TestClientSideProxyTrafficHandler_ConfigCommand_MalformedCommands(t *testin
 		t.Run(tt.name, func(t *testing.T) {
 			tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
 			handler := &ClientSideProxyTrafficHandler{
-				tokenManager: tokenManager,
-				rng:          rand.New(rand.NewSource(time.Now().UnixNano())),
+				tokenManager:         tokenManager,
+				expectedPlayerNumber: 1,
+				rng:                  rand.New(rand.NewSource(time.Now().UnixNano())),
 			}
 
 			_, err := handler.parseConfigCommand([]byte(tt.command))
@@ -165,7 +203,8 @@ func TestClientSideProxyTrafficHandler_ParseConfigCommand_SetDegradation(t *test
 		t.Run(tt.name, func(t *testing.T) {
 			tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
 			handler := &ClientSideProxyTrafficHandler{
-				tokenManager: tokenManager,
+				tokenManager:         tokenManager,
+				expectedPlayerNumber: 1,
 			}
 
 			cmdName, err := handler.parseConfigCommand([]byte(tt.command))
@@ -198,8 +237,9 @@ func TestClientSideProxyTrafficHandler_ParseConfigCommand_SetDegradationClamping
 		t.Run(tt.name, func(t *testing.T) {
 			tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
 			handler := &ClientSideProxyTrafficHandler{
-				tokenManager: tokenManager,
-				rng:          rand.New(rand.NewSource(time.Now().UnixMicro())),
+				tokenManager:         tokenManager,
+				expectedPlayerNumber: 1,
+				rng:                  rand.New(rand.NewSource(time.Now().UnixMicro())),
 			}
 
 			handler.parseConfigCommand([]byte(tt.command))
@@ -232,8 +272,9 @@ func TestClientSideProxyTrafficHandler_ParseConfigCommand_SetDegradationInvalidP
 		t.Run(tt.name, func(t *testing.T) {
 			tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
 			handler := &ClientSideProxyTrafficHandler{
-				tokenManager: tokenManager,
-				rng:          rand.New(rand.NewSource(time.Now().UnixNano())),
+				tokenManager:         tokenManager,
+				expectedPlayerNumber: 1,
+				rng:                  rand.New(rand.NewSource(time.Now().UnixNano())),
 			}
 
 			_, err := handler.parseConfigCommand([]byte(tt.command))
@@ -285,8 +326,9 @@ func TestClientSideProxyTrafficHandler_ParseConfigCommand_ReplaceToken(t *testin
 		t.Run(tt.name, func(t *testing.T) {
 			tokenManager := token.NewTokenManager(tt.playerCount)
 			handler := &ClientSideProxyTrafficHandler{
-				tokenManager: tokenManager,
-				rng:          rand.New(rand.NewSource(time.Now().UnixNano())),
+				tokenManager:         tokenManager,
+				expectedPlayerNumber: 1,
+				rng:                  rand.New(rand.NewSource(time.Now().UnixNano())),
 			}
 
 			cmdName, err := handler.parseConfigCommand([]byte(tt.command))
@@ -328,6 +370,7 @@ func TestClientSideProxyTrafficHandler_DegradationDropping(t *testing.T) {
 			tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
 			handler := &ClientSideProxyTrafficHandler{
 				tokenManager:          tokenManager,
+				expectedPlayerNumber:  1,
 				rng:                   rand.New(rand.NewSource(time.Now().UnixMicro())),
 				degradationPercentage: tt.degradationPercentage,
 			}
@@ -381,6 +424,7 @@ func TestClientSideProxyTrafficHandler_DegradationProbability(t *testing.T) {
 	tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
 	handler := &ClientSideProxyTrafficHandler{
 		tokenManager:          tokenManager,
+		expectedPlayerNumber:  1,
 		degradationPercentage: 50, // Drop 50% of packets
 		rng:                   rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
@@ -410,12 +454,14 @@ func TestClientSideProxyTrafficHandler_IndependentDegradation(t *testing.T) {
 
 	// Create two independent handlers
 	handler1 := &ClientSideProxyTrafficHandler{
-		tokenManager: tokenManager,
-		rng:          rand.New(rand.NewSource(time.Now().UnixMicro())),
+		tokenManager:         tokenManager,
+		expectedPlayerNumber: 1,
+		rng:                  rand.New(rand.NewSource(time.Now().UnixMicro())),
 	}
 	handler2 := &ClientSideProxyTrafficHandler{
-		tokenManager: tokenManager,
-		rng:          rand.New(rand.NewSource(time.Now().UnixMicro())),
+		tokenManager:         tokenManager,
+		expectedPlayerNumber: 1,
+		rng:                  rand.New(rand.NewSource(time.Now().UnixMicro())),
 	}
 
 	addr, _ := net.ResolveUDPAddr("udp", testutil.TestSourceAddr)
@@ -464,8 +510,9 @@ func TestClientSideProxyTrafficHandler_ParseConfigCommand_ListTokens(t *testing.
 		t.Run(tt.name, func(t *testing.T) {
 			tokenManager := token.NewTokenManager(tt.playerCount)
 			handler := &ClientSideProxyTrafficHandler{
-				tokenManager: tokenManager,
-				rng:          rand.New(rand.NewSource(time.Now().UnixNano())),
+				tokenManager:         tokenManager,
+				expectedPlayerNumber: 1,
+				rng:                  rand.New(rand.NewSource(time.Now().UnixNano())),
 			}
 
 			cmdName, err := handler.parseConfigCommand([]byte(tt.command))

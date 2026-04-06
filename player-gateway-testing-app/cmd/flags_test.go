@@ -133,20 +133,23 @@ func TestValidatePortRange(t *testing.T) {
 		name             string
 		portRange        string
 		udpEndpointCount int
+		playerCount      int
 		wantErr          bool
 	}{
-		{"valid range", "8000-9000", 3, false},
-		{"empty string", "", 3, false},
-		{"invalid format", "invalid-range", 3, true},
-		{"start port too high", "70000-80000", 3, true},
-		{"end port too high", "8000-70000", 3, true},
-		{"start greater than end", "9000-8000", 3, true},
-		{"range too small", "9000-9001", 10, true},
+		{"valid range", "8000-9000", 3, 1, false},
+		{"empty string", "", 3, 1, false},
+		{"invalid format", "invalid-range", 3, 1, true},
+		{"start port too high", "70000-80000", 3, 1, true},
+		{"end port too high", "8000-70000", 3, 1, true},
+		{"start greater than end", "9000-8000", 3, 1, true},
+		{"range too small for endpoints", "9000-9001", 10, 1, true},
+		{"range too small for players", "9000-9005", 3, 3, true},
+		{"valid range multiple players", "8000-8020", 3, 2, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validatePortRange(tt.portRange, tt.udpEndpointCount)
+			err := validatePortRange(tt.portRange, tt.udpEndpointCount, tt.playerCount)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {

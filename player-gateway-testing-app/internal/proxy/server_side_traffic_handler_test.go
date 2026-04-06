@@ -19,13 +19,61 @@ var (
 	testAddr3, _ = net.ResolveUDPAddr("udp", "127.0.0.1:3000")
 )
 
+type testSetup struct {
+	handler *ServerSideProxyTrafficHandler
+	socket  *net.UDPConn
+	ccPool  *ClientConnectionPool
+}
+
+func newTestSetup(t *testing.T) *testSetup {
+	socket := testutil.CreateTestUDPSocket(t)
+	t.Cleanup(func() { socket.Close() })
+
+	handler := &ServerSideProxyTrafficHandler{
+		clientSideProxySources: make(map[int][]*ClientSideProxyInfo),
+		lastUsedSource:         make(map[int]*ClientSideProxyInfo),
+		nextSourceIndex:        make(map[int]int),
+	}
+
+	ccPool := &ClientConnectionPool{clientConnectionPortMap: make(map[int]*ClientConnectionInfo)}
+	ccPool.clientConnectionPortMap[testutil.TestReturnTrafficPort] = &ClientConnectionInfo{PlayerNumber: testutil.TestPlayerNumber}
+
+	return &testSetup{handler: handler, socket: socket, ccPool: ccPool}
+}
+
+func (s *testSetup) addEndpoint(t *testing.T, age time.Duration) *net.UDPConn {
+	proxy := testutil.CreateTestUDPSocket(t)
+	t.Cleanup(func() { proxy.Close() })
+
+	info := &ClientSideProxyInfo{
+		SourceAddr:            proxy.LocalAddr().(*net.UDPAddr),
+		LastReceivedTimestamp: time.Now().Add(-age),
+	}
+	s.handler.clientSideProxySources[testutil.TestPlayerNumber] = append(
+		s.handler.clientSideProxySources[testutil.TestPlayerNumber], info)
+	s.handler.lastUsedSource[testutil.TestPlayerNumber] = info
+	return proxy
+}
+
+func (s *testSetup) send(msg string) error {
+	data := ClientBoundData{Data: []byte(msg), ClientConnectionPort: testutil.TestReturnTrafficPort}
+	return s.handler.HandleClientBoundTraffic(data, s.ccPool, s.socket)
+}
+
+func assertNoMessageReceived(t *testing.T, conn *net.UDPConn) {
+	conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+	buf := make([]byte, 1024)
+	_, _, err := conn.ReadFromUDP(buf)
+	assert.True(t, err != nil, "Expected no message due to connectionDropTimeout")
+}
+
 func TestServerSideProxyTrafficHandler_PreprocessServerBoundTraffic(t *testing.T) {
 	tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
 	handler := &ServerSideProxyTrafficHandler{
 		tokenManager:           tokenManager,
 		clientSideProxySources: make(map[int][]*ClientSideProxyInfo),
-		nextSourceIndexByPort:  make(map[int]int),
-		recentMessages:         make(map[int][]*net.UDPAddr),
+		lastUsedSource:         make(map[int]*ClientSideProxyInfo),
+		nextSourceIndex:        make(map[int]int),
 	}
 
 	// Create data with player number token (hash already stripped by client-side proxy)
@@ -43,288 +91,158 @@ func TestServerSideProxyTrafficHandler_PreprocessServerBoundTraffic(t *testing.T
 	// Verify source was added
 	sources := handler.clientSideProxySources[result.PlayerNumber]
 	assert.Equal(t, len(sources), 1)
+	assert.Equal(t, sources[0].SourceAddr.String(), sourceAddr.String())
 
+	// Verify timestamp was updated
 	clientLastReceivedTimestamp := handler.clientSideProxySources[testutil.TestPlayerNumber][0].LastReceivedTimestamp
 	assert.True(t, time.Since(clientLastReceivedTimestamp) <= time.Second, "Expected timestamp to be updated to recent time")
 
-	assert.Equal(t, sources[0].SourceAddr.String(), sourceAddr.String())
+	// Verify lastUsedSource was set
+	assert.Equal(t, handler.lastUsedSource[result.PlayerNumber].SourceAddr.String(), sourceAddr.String())
 
-	// Test duplicate source is not added
+	// Test duplicate source is not added but timestamp is refreshed
+	firstCallTimestamp := clientLastReceivedTimestamp
+	time.Sleep(10 * time.Millisecond)
 	_, err = handler.PreprocessServerBoundTraffic(data, sourceAddr)
 	assert.NoError(t, err)
+	assert.Equal(t, len(handler.clientSideProxySources[result.PlayerNumber]), 1)
 
-	sources = handler.clientSideProxySources[result.PlayerNumber]
-	assert.Equal(t, len(sources), 1)
+	// Verify timestamp was refreshed for duplicate source
+	secondCallTimestamp := handler.clientSideProxySources[result.PlayerNumber][0].LastReceivedTimestamp
+	assert.True(t, secondCallTimestamp.After(firstCallTimestamp), "Timestamp should be updated on duplicate source")
+	assert.Equal(t, handler.lastUsedSource[result.PlayerNumber].SourceAddr.String(), sourceAddr.String())
 }
 
 func TestServerSideProxyTrafficHandler_HandleClientBoundTraffic(t *testing.T) {
-	handler := &ServerSideProxyTrafficHandler{
-		clientSideProxySources: make(map[int][]*ClientSideProxyInfo),
-		nextSourceIndexByPort:  make(map[int]int),
-		recentMessages:         make(map[int][]*net.UDPAddr),
-	}
+	t.Run("RoundRobin", func(t *testing.T) {
+		s := newTestSetup(t)
+		proxy1 := s.addEndpoint(t, 0)
+		proxy2 := s.addEndpoint(t, 0)
 
-	socket := testutil.CreateTestUDPSocket(t)
-	defer socket.Close()
+		s.send(testutil.TestMessage)
+		msg, _ := testutil.ReadUDPMessage(t, proxy1)
+		assert.Equal(t, msg, testutil.TestMessage)
 
-	proxySocket := testutil.CreateTestUDPSocket(t)
-	defer proxySocket.Close()
+		s.send(testutil.TestMessage)
+		msg, _ = testutil.ReadUDPMessage(t, proxy2)
+		assert.Equal(t, msg, testutil.TestMessage)
+	})
 
-	proxyAddr := proxySocket.LocalAddr().(*net.UDPAddr)
+	t.Run("RoundRobinWrapsAround", func(t *testing.T) {
+		s := newTestSetup(t)
+		proxy1 := s.addEndpoint(t, 0)
+		proxy2 := s.addEndpoint(t, 0)
 
-	handler.clientSideProxySources[testutil.TestPlayerNumber] = []*ClientSideProxyInfo{
-		{
-			SourceAddr:            proxyAddr,
-			LastReceivedTimestamp: time.Now().Add(-100 * time.Second),
-		},
-	}
-	handler.recentMessages[testutil.TestPlayerNumber] = []*net.UDPAddr{proxyAddr}
+		// Send 4 messages - should cycle: proxy1, proxy2, proxy1, proxy2
+		s.send(testutil.TestMessage)
+		msg, _ := testutil.ReadUDPMessage(t, proxy1)
+		assert.Equal(t, msg, testutil.TestMessage)
 
-	ccPool := &ClientConnectionPool{
-		clientConnectionPortMap: make(map[int]*ClientConnectionInfo),
-	}
-	ccPool.clientConnectionPortMap[testutil.TestReturnTrafficPort] = &ClientConnectionInfo{
-		PlayerNumber: testutil.TestPlayerNumber,
-	}
+		s.send(testutil.TestMessage)
+		msg, _ = testutil.ReadUDPMessage(t, proxy2)
+		assert.Equal(t, msg, testutil.TestMessage)
 
-	data := ClientBoundData{
-		Data:                 []byte(testutil.TestMessage),
-		ClientConnectionPort: testutil.TestReturnTrafficPort,
-	}
+		s.send(testutil.TestMessage)
+		msg, _ = testutil.ReadUDPMessage(t, proxy1)
+		assert.Equal(t, msg, testutil.TestMessage)
 
-	// Test successful handling
-	err := handler.HandleClientBoundTraffic(data, ccPool, socket)
-	assert.NoError(t, err)
+		s.send(testutil.TestMessage)
+		msg, _ = testutil.ReadUDPMessage(t, proxy2)
+		assert.Equal(t, msg, testutil.TestMessage)
+	})
 
-	// Verify round robin index stays at 0 for single source
-	assert.Equal(t, handler.nextSourceIndexByPort[testutil.TestReturnTrafficPort], 0)
+	t.Run("FallbackToLastUsed", func(t *testing.T) {
+		s := newTestSetup(t)
+		proxy := s.addEndpoint(t, 5*time.Second) // stale for round-robin but within connectionDropTimeout
 
-	receivedString, _ := testutil.ReadUDPMessage(t, proxySocket)
-	assert.Equal(t, receivedString, string(testutil.TestMessage))
+		err := s.send("fallback")
+		assert.NoError(t, err)
 
-	// Test with no sources (should not error)
-	handler.clientSideProxySources[testutil.TestPlayerNumber] = []*ClientSideProxyInfo{}
-	err = handler.HandleClientBoundTraffic(data, ccPool, socket)
-	assert.NoError(t, err)
+		msg, _ := testutil.ReadUDPMessage(t, proxy)
+		assert.Equal(t, msg, "fallback")
+	})
+
+	t.Run("ConnectionDrop", func(t *testing.T) {
+		s := newTestSetup(t)
+		proxy := s.addEndpoint(t, 65*time.Second)
+
+		err := s.send("blocked")
+		assert.NoError(t, err)
+
+		assertNoMessageReceived(t, proxy)
+
+		_, sourcesExist := s.handler.clientSideProxySources[testutil.TestPlayerNumber]
+		_, lastUsedExists := s.handler.lastUsedSource[testutil.TestPlayerNumber]
+		_, indexExists := s.handler.nextSourceIndex[testutil.TestPlayerNumber]
+		assert.True(t, !sourcesExist, "clientSideProxySources should be cleaned up")
+		assert.True(t, !lastUsedExists, "lastUsedSource should be cleaned up")
+		assert.True(t, !indexExists, "nextSourceIndex should be cleaned up")
+	})
+
+	t.Run("EndpointBecomesStale", func(t *testing.T) {
+		s := newTestSetup(t)
+		s.addEndpoint(t, 2*time.Second) // stale (>1s)
+		proxy2 := s.addEndpoint(t, 0)   // active
+
+		// Both messages should go to proxy2 (only active endpoint)
+		s.send(testutil.TestMessage)
+		msg, _ := testutil.ReadUDPMessage(t, proxy2)
+		assert.Equal(t, msg, testutil.TestMessage)
+
+		s.send(testutil.TestMessage)
+		msg, _ = testutil.ReadUDPMessage(t, proxy2)
+		assert.Equal(t, msg, testutil.TestMessage)
+	})
+
+	t.Run("ConnectionRestoredAfterDrop", func(t *testing.T) {
+		tokenManager := testutil.CreateTestTokenManager(testutil.TestPlayerCount)
+		s := newTestSetup(t)
+		s.handler.tokenManager = tokenManager
+		proxy := s.addEndpoint(t, 65*time.Second)
+
+		s.send("blocked")
+		assertNoMessageReceived(t, proxy)
+
+		// Client sends a message - this updates lastUsedSource timestamp
+		clientData := []byte("1|hello")
+		s.handler.PreprocessServerBoundTraffic(clientData, proxy.LocalAddr().(*net.UDPAddr))
+
+		s.send("restored")
+
+		proxy.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		msg, _ := testutil.ReadUDPMessage(t, proxy)
+		assert.Equal(t, msg, "restored")
+	})
 }
 
 func TestServerSideProxyTrafficHandler_FindClientInfo(t *testing.T) {
+	handler := &ServerSideProxyTrafficHandler{}
 
-	tests := []struct {
-		name          string
-		sources       []*ClientSideProxyInfo
-		searchAddr    *net.UDPAddr
-		expectedFound bool
-	}{
-		{
-			name: "find existing source",
-			sources: []*ClientSideProxyInfo{
-				{SourceAddr: testAddr1, LastReceivedTimestamp: time.Now().Add(-10 * time.Second)},
-				{SourceAddr: testAddr2, LastReceivedTimestamp: time.Now().Add(-5 * time.Second)},
-			},
-			searchAddr:    testAddr1,
-			expectedFound: true,
-		},
-		{
-			name: "not finding non-existent source",
-			sources: []*ClientSideProxyInfo{
-				{SourceAddr: testAddr1, LastReceivedTimestamp: time.Now().Add(-10 * time.Second)},
-				{SourceAddr: testAddr2, LastReceivedTimestamp: time.Now().Add(-5 * time.Second)},
-			},
-			searchAddr:    testAddr3,
-			expectedFound: false,
-		},
+	sources := []*ClientSideProxyInfo{
+		{SourceAddr: testAddr1},
+		{SourceAddr: testAddr2},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler := &ServerSideProxyTrafficHandler{}
-			_, found := handler.findClientInfo(tt.sources, tt.searchAddr)
+	info, found := handler.findClientInfo(sources, testAddr1)
+	assert.True(t, found, "Should find existing source")
+	assert.Equal(t, info.SourceAddr.String(), testAddr1.String())
 
-			assert.Equal(t, found, tt.expectedFound)
-		})
-	}
+	_, found = handler.findClientInfo(sources, testAddr3)
+	assert.True(t, !found, "Should not find non-existent source")
 }
 
-func TestServerSideProxyTrafficHandler_AddToRecentMessages(t *testing.T) {
-	handler := &ServerSideProxyTrafficHandler{
-		recentMessages: make(map[int][]*net.UDPAddr),
+func TestServerSideProxyTrafficHandler_FilterActiveSources(t *testing.T) {
+	handler := &ServerSideProxyTrafficHandler{}
+
+	now := time.Now()
+	sources := []*ClientSideProxyInfo{
+		{SourceAddr: testAddr1, LastReceivedTimestamp: now},                              // active
+		{SourceAddr: testAddr2, LastReceivedTimestamp: now.Add(-2 * time.Second)},        // stale
+		{SourceAddr: testAddr3, LastReceivedTimestamp: now.Add(-500 * time.Millisecond)}, // active
 	}
 
-	// Add first message
-	handler.addToRecentMessages(testutil.TestPlayerNumber, testAddr1)
-	assert.Equal(t, len(handler.recentMessages[testutil.TestPlayerNumber]), 1)
-
-	// Add more messages up to the limit
-	for i := 0; i < 19; i++ {
-		handler.addToRecentMessages(testutil.TestPlayerNumber, testAddr2)
-	}
-
-	assert.Equal(t, len(handler.recentMessages[testutil.TestPlayerNumber]), 20)
-
-	// Add one more to trigger trimming
-	handler.addToRecentMessages(testutil.TestPlayerNumber, testAddr1)
-	assert.Equal(t, len(handler.recentMessages[testutil.TestPlayerNumber]), 20)
-
-	// Verify oldest message was removed (first testAddr1 should be gone)
-	assert.Equal(t, handler.recentMessages[testutil.TestPlayerNumber][0].String(), testAddr2.String())
-}
-
-func TestServerSideProxyTrafficHandler_IsInRecentMessages(t *testing.T) {
-	tests := []struct {
-		name           string
-		recentMessages map[int][]*net.UDPAddr
-		playerNumber   int
-		searchAddr     *net.UDPAddr
-		expectedFound  bool
-	}{
-		{
-			name:           "find existing address addr1",
-			recentMessages: map[int][]*net.UDPAddr{testutil.TestPlayerNumber: {testAddr1, testAddr2}},
-			playerNumber:   testutil.TestPlayerNumber,
-			searchAddr:     testAddr1,
-			expectedFound:  true,
-		},
-		{
-			name:           "find existing address addr2",
-			recentMessages: map[int][]*net.UDPAddr{testutil.TestPlayerNumber: {testAddr1, testAddr2}},
-			playerNumber:   testutil.TestPlayerNumber,
-			searchAddr:     testAddr2,
-			expectedFound:  true,
-		},
-		{
-			name:           "not finding non-existent address",
-			recentMessages: map[int][]*net.UDPAddr{testutil.TestPlayerNumber: {testAddr1, testAddr2}},
-			playerNumber:   testutil.TestPlayerNumber,
-			searchAddr:     testAddr3,
-			expectedFound:  false,
-		},
-		{
-			name:           "empty recent messages for non-existent player",
-			recentMessages: map[int][]*net.UDPAddr{testutil.TestPlayerNumber: {testAddr1, testAddr2}},
-			playerNumber:   999,
-			searchAddr:     testAddr1,
-			expectedFound:  false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler := &ServerSideProxyTrafficHandler{
-				recentMessages: tt.recentMessages,
-			}
-
-			found := handler.isInRecentMessages(tt.playerNumber, tt.searchAddr)
-			assert.Equal(t, found, tt.expectedFound)
-		})
-	}
-}
-
-func TestServerSideProxyTrafficHandler_IsSourceActive(t *testing.T) {
-	tests := []struct {
-		name           string
-		recentMessages []*net.UDPAddr
-		clientInfo     *ClientSideProxyInfo
-		expectedActive bool
-	}{
-		{
-			name:           "active source - in recent messages and recent timestamp",
-			recentMessages: []*net.UDPAddr{testAddr1},
-			clientInfo: &ClientSideProxyInfo{
-				SourceAddr:            testAddr1,
-				LastReceivedTimestamp: time.Now(),
-			},
-			expectedActive: true,
-		},
-		{
-			name:           "inactive source - not in recent messages",
-			recentMessages: []*net.UDPAddr{testAddr1},
-			clientInfo: &ClientSideProxyInfo{
-				SourceAddr:            testAddr2,
-				LastReceivedTimestamp: time.Now(),
-			},
-			expectedActive: false,
-		},
-		{
-			name:           "inactive source - old timestamp",
-			recentMessages: []*net.UDPAddr{testAddr1},
-			clientInfo: &ClientSideProxyInfo{
-				SourceAddr:            testAddr1,
-				LastReceivedTimestamp: time.Now().Add(-35 * time.Second),
-			},
-			expectedActive: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler := &ServerSideProxyTrafficHandler{
-				recentMessages: map[int][]*net.UDPAddr{testutil.TestPlayerNumber: tt.recentMessages},
-			}
-
-			active := handler.isSourceActive(testutil.TestPlayerNumber, tt.clientInfo)
-			assert.Equal(t, active, tt.expectedActive)
-		})
-	}
-}
-
-func TestServerSideProxyTrafficHandler_RemoveStaleSources(t *testing.T) {
-	tests := []struct {
-		name                string
-		recentMessages      []*net.UDPAddr
-		sources             []*ClientSideProxyInfo
-		startIndex          int
-		expectedSourceCount int
-		expectedFirstAddr   string
-	}{
-		{
-			name:           "remove stale source at index 0",
-			recentMessages: []*net.UDPAddr{testAddr2, testAddr3},
-			sources: []*ClientSideProxyInfo{
-				{SourceAddr: testAddr1, LastReceivedTimestamp: time.Now().Add(-35 * time.Second)},
-				{SourceAddr: testAddr2, LastReceivedTimestamp: time.Now()},
-				{SourceAddr: testAddr3, LastReceivedTimestamp: time.Now()},
-			},
-			startIndex:          0,
-			expectedSourceCount: 2,
-			expectedFirstAddr:   testAddr2.String(),
-		},
-		{
-			name:           "all active sources - no removal",
-			recentMessages: []*net.UDPAddr{testAddr2, testAddr3},
-			sources: []*ClientSideProxyInfo{
-				{SourceAddr: testAddr2, LastReceivedTimestamp: time.Now()},
-				{SourceAddr: testAddr3, LastReceivedTimestamp: time.Now()},
-			},
-			startIndex:          1,
-			expectedSourceCount: 2,
-			expectedFirstAddr:   testAddr2.String(),
-		},
-		{
-			name:           "single stale source - should not remove",
-			recentMessages: []*net.UDPAddr{},
-			sources: []*ClientSideProxyInfo{
-				{SourceAddr: testAddr1, LastReceivedTimestamp: time.Now().Add(-31 * time.Second)},
-			},
-			startIndex:          0,
-			expectedSourceCount: 1,
-			expectedFirstAddr:   testAddr1.String(),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			handler := &ServerSideProxyTrafficHandler{
-				recentMessages: map[int][]*net.UDPAddr{testutil.TestPlayerNumber: tt.recentMessages},
-			}
-
-			updatedSources := handler.removeStaleSources(tt.sources, tt.startIndex, testutil.TestPlayerNumber)
-
-			assert.Equal(t, len(updatedSources), tt.expectedSourceCount)
-
-			if len(updatedSources) > 0 {
-				assert.Equal(t, updatedSources[0].SourceAddr.String(), tt.expectedFirstAddr)
-			}
-		})
-	}
+	active := handler.filterActiveSources(sources)
+	assert.Equal(t, len(active), 2)
+	assert.Equal(t, active[0].SourceAddr.String(), testAddr1.String())
+	assert.Equal(t, active[1].SourceAddr.String(), testAddr3.String())
 }
