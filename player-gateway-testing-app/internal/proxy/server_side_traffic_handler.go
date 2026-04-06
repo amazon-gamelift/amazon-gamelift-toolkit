@@ -12,12 +12,12 @@ import (
 )
 
 const (
-	// maxRecentMessages is the size of the buffer that tracks recent messages sent from client-side proxy for a given player.
-	// If a proxy hasn't sent a message in the last maxRecentMessages, it's considered stale and removed from the active sources list.
-	maxRecentMessages = 20
-	// sourceTimeoutDuration is the maximum time since last received traffic before a client-side
-	// proxy source is considered stale and removed from the active sources list
-	sourceTimeoutDuration = 30 * time.Second
+	// activeEndpointTimeout is how long an endpoint stays in the round-robin rotation
+	// after receiving traffic from the client
+	activeEndpointTimeout = 1 * time.Second
+	// connectionDropTimeout is how long before blocking all Server->Client traffic
+	// when no Client->Server traffic has been received
+	connectionDropTimeout = 60 * time.Second
 )
 
 // ClientSideProxyInfo holds information about a client-side proxy source that sent traffic.
@@ -30,8 +30,8 @@ type ClientSideProxyInfo struct {
 type ServerSideProxyTrafficHandler struct {
 	tokenManager           *token.TokenManager            // Token manager for parsing tokens
 	clientSideProxySources map[int][]*ClientSideProxyInfo // Player number -> client-side proxy sources info
-	nextSourceIndexByPort  map[int]int                    // Return traffic port -> index
-	recentMessages         map[int][]*net.UDPAddr         // Last maxRecentMessages addresses per player
+	lastUsedSource         map[int]*ClientSideProxyInfo   // Player number -> most recently used endpoint
+	nextSourceIndex        map[int]int                    // Player number -> round-robin index
 }
 
 // PreprocessServerBoundTraffic tracks client-side proxy sources and extracts player information.
@@ -46,7 +46,6 @@ type ServerSideProxyTrafficHandler struct {
 //   - PreprocessServerBoundTrafficResult: contains player number, modified data, and command result
 //   - error: nil on success, error if token parsing fails
 func (s *ServerSideProxyTrafficHandler) PreprocessServerBoundTraffic(data []byte, sourceAddr *net.UDPAddr) (PreprocessServerBoundTrafficResult, error) {
-	// Extract player number and strip entire token from data
 	playerNumber, modifiedData, err := s.tokenManager.ParseServerSideToken(data)
 	if err != nil {
 		return PreprocessServerBoundTrafficResult{0, nil, nil}, err
@@ -55,20 +54,18 @@ func (s *ServerSideProxyTrafficHandler) PreprocessServerBoundTraffic(data []byte
 	sources := s.clientSideProxySources[playerNumber]
 	clientInfo, exists := s.findClientInfo(sources, sourceAddr)
 	if !exists {
-		clientInfo = &ClientSideProxyInfo{
-			SourceAddr: sourceAddr,
-		}
+		clientInfo = &ClientSideProxyInfo{SourceAddr: sourceAddr}
 		s.clientSideProxySources[playerNumber] = append(sources, clientInfo)
 	}
 	clientInfo.LastReceivedTimestamp = time.Now()
-
-	s.addToRecentMessages(playerNumber, sourceAddr)
+	s.lastUsedSource[playerNumber] = clientInfo
 
 	return PreprocessServerBoundTrafficResult{playerNumber, modifiedData, nil}, nil
 }
 
-// HandleClientBoundTraffic distributes client-bound traffic across client-side proxies using round-robin.
-// Removes stale client-side proxies that haven't received traffic in the last sourceTimeoutDuration or sent a message in the last maxRecentMessages.
+// HandleClientBoundTraffic distributes client-bound traffic using round-robin across endpoints
+// active within the past activeEndpointTimeout. Falls back to most recently used endpoint if none active.
+// Blocks traffic and cleans up player state if no activity for connectionDropTimeout.
 //
 // Parameters:
 //   - data: the data to send to the client and the client connection port it was received on
@@ -83,35 +80,42 @@ func (s *ServerSideProxyTrafficHandler) HandleClientBoundTraffic(data ClientBoun
 		return nil
 	}
 
+	// Check connection drop timeout
+	lastUsed := s.lastUsedSource[playerNumber]
+	if lastUsed == nil || time.Since(lastUsed.LastReceivedTimestamp) >= connectionDropTimeout {
+		// Clean up stale player state
+		delete(s.clientSideProxySources, playerNumber)
+		delete(s.lastUsedSource, playerNumber)
+		delete(s.nextSourceIndex, playerNumber)
+		return nil // Block traffic
+	}
+
+	// Get active endpoints (within activeEndpointTimeout)
 	sources := s.clientSideProxySources[playerNumber]
-	if len(sources) == 0 {
-		return nil
+	activeSources := s.filterActiveSources(sources)
+
+	// Fall back to last used if no active endpoints
+	if len(activeSources) == 0 {
+		activeSources = []*ClientSideProxyInfo{lastUsed}
 	}
 
-	nextIndex := s.nextSourceIndexByPort[data.ClientConnectionPort]
-	sources = s.removeStaleSources(sources, nextIndex, playerNumber)
-	if nextIndex >= len(sources) {
-		nextIndex = 0
-	}
+	// Round-robin
+	idx := s.nextSourceIndex[playerNumber]
+	s.nextSourceIndex[playerNumber] = (idx + 1) % len(activeSources)
 
-	s.clientSideProxySources[playerNumber] = sources
-	s.nextSourceIndexByPort[data.ClientConnectionPort] = (nextIndex + 1) % len(sources)
-
-	if _, err := socket.WriteToUDP(data.Data, sources[nextIndex].SourceAddr); err != nil {
-		return err
-	}
-	return nil
+	_, err := socket.WriteToUDP(data.Data, activeSources[idx].SourceAddr)
+	return err
 }
 
-// findClientInfo finds an existing source and updates its timestamp.
+// findClientInfo finds an existing source in the sources slice.
 //
 // Parameters:
 //   - sources: slice of client-side proxy info to search through
-//   - sourceAddr: UDP address to find and update
+//   - sourceAddr: UDP address to find
 //
 // Returns:
 //   - *ClientSideProxyInfo: the client-side proxy info corresponding to the given sourceAddr if found
-//   - bool: true if source exists (and was updated), false if not found
+//   - bool: true if source exists, false if not found
 func (s *ServerSideProxyTrafficHandler) findClientInfo(sources []*ClientSideProxyInfo, sourceAddr *net.UDPAddr) (*ClientSideProxyInfo, bool) {
 	for _, info := range sources {
 		if info.SourceAddr.String() == sourceAddr.String() {
@@ -121,76 +125,19 @@ func (s *ServerSideProxyTrafficHandler) findClientInfo(sources []*ClientSideProx
 	return nil, false
 }
 
-// addToRecentMessages adds a source address to the recent messages ring buffer.
-// Maintains a maximum of maxRecentMessages entries per player.
+// filterActiveSources returns sources that have received traffic within activeEndpointTimeout.
 //
 // Parameters:
-//   - playerNumber: the player number
-//   - sourceAddr: the source address to add
-func (s *ServerSideProxyTrafficHandler) addToRecentMessages(playerNumber int, sourceAddr *net.UDPAddr) {
-	s.recentMessages[playerNumber] = append(s.recentMessages[playerNumber], sourceAddr)
-	if len(s.recentMessages[playerNumber]) > maxRecentMessages {
-		startIndex := len(s.recentMessages[playerNumber]) - maxRecentMessages
-		s.recentMessages[playerNumber] = s.recentMessages[playerNumber][startIndex:]
-	}
-}
-
-// removeStaleSources removes stale sources starting from the given index and returns the next valid source.
-// Keeps removing sources until it finds an active one or only one source remains.
-//
-// Parameters:
-//   - sources: slice of client-side proxy sources
-//   - index: index to start checking from
-//   - playerNumber: the player number
+//   - sources: slice of client-side proxy info to filter
 //
 // Returns:
-//   - []*ClientSideProxyInfo: updated sources slice with stale sources removed
-func (s *ServerSideProxyTrafficHandler) removeStaleSources(sources []*ClientSideProxyInfo, index int, playerNumber int) []*ClientSideProxyInfo {
-	clientInfo := sources[index]
-
-	for len(sources) > 1 {
-		if s.isSourceActive(playerNumber, clientInfo) {
-			break
-		}
-
-		sources = append(sources[:index], sources[index+1:]...)
-		if index >= len(sources) {
-			index = 0
-		}
-		clientInfo = sources[index]
-	}
-
-	return sources
-}
-
-// isSourceActive checks if a source is still active based on recent messages and timestamp.
-// A source is considered active if it has sent a message in the last maxRecentMessages
-// AND has received traffic in the past sourceTimeoutDuration.
-//
-// Parameters:
-//   - playerNumber: the player number
-//   - clientInfo: the client-side proxy info to check
-//
-// Returns:
-//   - bool: true if source is active, false if stale
-func (s *ServerSideProxyTrafficHandler) isSourceActive(playerNumber int, clientInfo *ClientSideProxyInfo) bool {
-	return s.isInRecentMessages(playerNumber, clientInfo.SourceAddr) &&
-		time.Since(clientInfo.LastReceivedTimestamp) < sourceTimeoutDuration
-}
-
-// isInRecentMessages checks if an address is in the last maxRecentMessages for a player.
-//
-// Parameters:
-//   - playerNumber: the player number to check
-//   - addr: the UDP address to search for
-//
-// Returns:
-//   - bool: true if address is found in the last maxRecentMessages, false otherwise
-func (s *ServerSideProxyTrafficHandler) isInRecentMessages(playerNumber int, addr *net.UDPAddr) bool {
-	for _, recentAddr := range s.recentMessages[playerNumber] {
-		if recentAddr.String() == addr.String() {
-			return true
+//   - []*ClientSideProxyInfo: slice containing only active sources
+func (s *ServerSideProxyTrafficHandler) filterActiveSources(sources []*ClientSideProxyInfo) []*ClientSideProxyInfo {
+	var active []*ClientSideProxyInfo
+	for _, src := range sources {
+		if time.Since(src.LastReceivedTimestamp) < activeEndpointTimeout {
+			active = append(active, src)
 		}
 	}
-	return false
+	return active
 }

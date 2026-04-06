@@ -45,7 +45,7 @@ func validateIPAddress(ipAddress string) error {
 	return nil
 }
 
-func validatePortRange(portRange string, endpointCount int) error {
+func validatePortRange(portRange string, endpointCount, playerCount int) error {
 	if portRange == "" {
 		return nil
 	}
@@ -67,10 +67,11 @@ func validatePortRange(portRange string, endpointCount int) error {
 		return fmt.Errorf("end port of %s out of bounds: %w", ToolPortRangeFlag, err)
 	}
 
+	totalEndpoints := endpointCount * playerCount
 	availablePorts := endPort - startPort + 1
-	if availablePorts < endpointCount {
-		return fmt.Errorf("insufficient ports in range %s for %d UDP endpoints (need %d, have %d)",
-			portRange, endpointCount, endpointCount, availablePorts)
+	if availablePorts < totalEndpoints {
+		return fmt.Errorf("insufficient ports in range %s for %d players with %d endpoints each (need %d, have %d)",
+			portRange, playerCount, endpointCount, totalEndpoints, availablePorts)
 	}
 
 	return nil
@@ -94,7 +95,7 @@ func validateFlags() error {
 		return fmt.Errorf("%s out of bounds: %w", ServerPortFlag, err)
 	}
 
-	if err := validatePortRange(cfg.PortRange, cfg.UDPEndpointCount); err != nil {
+	if err := validatePortRange(cfg.PortRange, cfg.UDPEndpointCount, cfg.PlayerCount); err != nil {
 		return err
 	}
 

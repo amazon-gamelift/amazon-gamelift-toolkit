@@ -27,16 +27,17 @@ const (
 	MinimumDegradationPercentage = 0
 	MaximumDegradationPercentage = 100
 
-	ConfigCommandDelimiter = ":"
-	SetDegradationCommand  = "SetDegradation"
-	ReplaceTokenCommand    = "ReplaceToken"
-	ListTokensCommand      = "ListTokens"
-	ConfigCommandPrefix    = "PlayerGateway:"
+	ConfigCommandDelimiter            = ":"
+	SetDegradationCommand             = "SetDegradation"
+	ReplaceTokenCommand               = "ReplaceToken"
+	ListTokensCommand                 = "ListTokens"
+	GetPlayerConnectionDetailsCommand = "GetPlayerConnectionDetails"
+	ConfigCommandPrefix               = "PlayerGateway:"
 )
 
 var (
 	ConfigCommandPrefixByteArray = []byte(ConfigCommandPrefix)
-	ParameterRequiringCommands   = []string{SetDegradationCommand, ReplaceTokenCommand}
+	ParameterRequiringCommands   = []string{SetDegradationCommand, ReplaceTokenCommand, GetPlayerConnectionDetailsCommand}
 )
 
 // ClientSideProxyTrafficHandler handles preprocessing and routing for client-side proxies.
@@ -44,6 +45,8 @@ type ClientSideProxyTrafficHandler struct {
 	tokenManager          *token.TokenManager
 	degradationPercentage int
 	rng                   *rand.Rand
+	expectedPlayerNumber  int   // Player number that must use this endpoint
+	requestedPlayerNumbers []int // Player numbers from GetPlayerConnectionDetails command
 }
 
 // PreprocessServerBoundTraffic processes server-bound traffic from clients.
@@ -71,6 +74,8 @@ func (c *ClientSideProxyTrafficHandler) PreprocessServerBoundTraffic(data []byte
 		switch cmdName {
 		case SetDegradationCommand:
 			return PreprocessServerBoundTrafficResult{0, nil, DegradationResult{c.degradationPercentage}}, nil
+		case GetPlayerConnectionDetailsCommand:
+			return PreprocessServerBoundTrafficResult{0, nil, GetPlayerConnectionDetailsResult{PlayerNumbers: c.requestedPlayerNumbers}}, nil
 		default:
 			return PreprocessServerBoundTrafficResult{0, nil, GenericCommandResult{}}, nil
 		}
@@ -85,6 +90,12 @@ func (c *ClientSideProxyTrafficHandler) PreprocessServerBoundTraffic(data []byte
 	if err != nil {
 		return PreprocessServerBoundTrafficResult{0, nil, nil}, fmt.Errorf("token validation failed: %w", err)
 	}
+
+	// Validate player is using their assigned endpoint
+	if playerNumber != c.expectedPlayerNumber {
+		return PreprocessServerBoundTrafficResult{0, nil, nil}, fmt.Errorf("player %d cannot use endpoint assigned to player %d", playerNumber, c.expectedPlayerNumber)
+	}
+
 	return PreprocessServerBoundTrafficResult{playerNumber, modifiedData, nil}, nil
 }
 
@@ -143,6 +154,9 @@ func (c *ClientSideProxyTrafficHandler) parseConfigCommand(data []byte) (string,
 		return SetDegradationCommand, c.setDegradation(cmdParameter)
 	case ReplaceTokenCommand:
 		return ReplaceTokenCommand, c.replaceToken(cmdParameter)
+	case GetPlayerConnectionDetailsCommand:
+		c.parsePlayerNumbers(cmdParameter)
+		return GetPlayerConnectionDetailsCommand, nil
 	case ListTokensCommand:
 		tokens := c.tokenManager.GetValidTokens()
 		for playerNum := 1; playerNum <= c.tokenManager.GetPlayerCount(); playerNum++ {
@@ -209,4 +223,21 @@ func (c *ClientSideProxyTrafficHandler) shouldDropPacket() bool {
 		return true
 	}
 	return c.rng.Intn(MaximumDegradationPercentage) < c.degradationPercentage
+}
+
+// parsePlayerNumbers parses a GetPlayerConnectionDetails command parameter.
+// Expected format: comma-separated player numbers (e.g., "1,2,3")
+//
+// Parameters:
+//   - cmdParameter: string containing comma-separated player numbers
+func (c *ClientSideProxyTrafficHandler) parsePlayerNumbers(cmdParameter string) {
+	c.requestedPlayerNumbers = nil
+	for _, numStr := range strings.Split(cmdParameter, ",") {
+		num, err := strconv.Atoi(strings.TrimSpace(numStr))
+		if err != nil {
+			log.Printf("Warning: ignoring invalid player number: %s", numStr)
+			continue
+		}
+		c.requestedPlayerNumbers = append(c.requestedPlayerNumbers, num)
+	}
 }

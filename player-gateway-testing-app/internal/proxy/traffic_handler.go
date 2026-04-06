@@ -39,3 +39,10 @@ func (d DegradationResult) ConfigCommandResult() {}
 type GenericCommandResult struct{}
 
 func (g GenericCommandResult) ConfigCommandResult() {}
+
+// GetPlayerConnectionDetailsResult contains the player numbers requested
+type GetPlayerConnectionDetailsResult struct {
+	PlayerNumbers []int
+}
+
+func (g GetPlayerConnectionDetailsResult) ConfigCommandResult() {}
