@@ -1,0 +1,13 @@
+#!/bin/bash
+# This is a sample game server placeholder
+# Replace this with your actual game server binary
+
+echo "Sample Game Server v1.0.0"
+echo "Starting server on port ${PORT:-7777}..."
+echo "This is a placeholder - replace with your actual game server"
+
+# Simulate a running game server
+while true; do
+    sleep 10
+    echo "Server heartbeat..."
+done

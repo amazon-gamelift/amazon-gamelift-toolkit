@@ -1,0 +1,341 @@
+
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+Parameters:
+  S3ObjectKey:
+    Type: String
+    Default: "gameserver.zip"
+  ContainerGroupName:
+    Type: String
+    Default: "MyGame"
+  FleetDescription:
+    Type: String
+    Default: "MyGameFleet"
+  FleetInstanceType:
+    Type: String
+    Default: "c6i.xlarge"
+  vCPULimit:
+    Type: Number
+    Default: 1.25
+    Description: "vCPU limit per game server container (3 sessions on a c6i.xlarge when considering sync overhead)"
+  MemoryLimit:
+    Type: Number
+    Default: 2300
+    Description: "Memory limit in MiB per game server container (3 sessions on a c6i.xlarge when considering sync and tooling overhead)"
+  Port:
+    Type: Number
+    Default: 7777
+  Protocol:
+    Type: String
+    Default: "UDP"
+  S3BuildsPrefix:
+    Type: String
+    Default: "builds/"
+    Description: "S3 prefix for game server build versions"
+  SyncInterval:
+    Type: Number
+    Default: 5
+    Description: "S3 sync interval in seconds for the sidecar"
+
+Resources:
+
+  # Create a versioned S3 bucket for storing the game server build
+  GameServerBuildBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration: 
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+
+  # Define an IAM role that can be assumed by GameLift for the fleet
+  FleetIAMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - gamelift.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/GameLiftContainerFleetPolicy
+      Policies:
+        # Add S3 read permissions for the sidecar to sync builds
+        - PolicyName: S3BuildsReadPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub "${GameServerBuildBucket.Arn}/${S3BuildsPrefix}*"
+                  - !GetAtt GameServerBuildBucket.Arn
+        # Add CloudWatch Logs permissions for sidecar logging
+        - PolicyName: CloudWatchLogsPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/gamelift/sidecar/*"
+
+  # Define the Amazon GameLift Container fleet. We'll just do a single region and won't deploy anything on it just yet
+  ContainerFleet:
+    Type: AWS::GameLift::ContainerFleet
+    Properties:
+      Description: !Ref FleetDescription
+      FleetRoleArn: !GetAtt FleetIAMRole.Arn
+      InstanceType: !Ref FleetInstanceType
+
+  # CodeBuild role, this should be trimmed down to the access we actually need
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+        Version: "2012-10-17"
+      # Custom policy to allow creating ECR repositories and pushing images to ECR
+      Policies:
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - ecr:CreateRepository
+                  - ecr:GetLoginPassword
+                  - ecr:GetAuthorizationToken
+                  - ecr:DescribeImages
+                  - ecr:BatchGetImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:InitiateLayerUpload
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:PutImage
+                  - ecr:GetDownloadUrlForLayer
+                  - iam:PassRole
+                Effect: Allow
+                Resource: "*"
+            Version: "2012-10-17"
+          PolicyName: GameServerCodeBuildECRPolicy
+        # Custom policy to allow describing and creating GameLift container groups, and updating a GameLift container fleet
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - gamelift:DescribeContainerGroupDefinition
+                  - gamelift:CreateContainerGroupDefinition
+                  - gamelift:UpdateContainerGroupDefinition
+                  - gamelift:UpdateContainerFleet
+                Effect: Allow
+                Resource: "*"
+            Version: "2012-10-17"
+          PolicyName: GameServerCodeBuildGameLiftPolicy
+        # custom policies for S3, CloudWatch and CodeBuild (baseline requirements)
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                Effect: Allow
+                Resource:
+                  - !GetAtt GameServerBuildBucket.Arn
+                  - !Sub "${GameServerBuildBucket.Arn}/*"
+            Version: "2012-10-17"
+          PolicyName: GameServerCodeBuildS3Policy
+        - PolicyDocument:
+            Statement:
+              - Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - codebuild:CreateReportGroup
+                  - codebuild:CreateReport
+                  - codebuild:UpdateReport
+                  - codebuild:BatchPutTestCases
+                  - codebuild:BatchPutCodeCoverages
+                Effect: Allow
+                Resource: "*"
+            Version: "2012-10-17"
+          PolicyName: GameServerCodeBuildLogPolicy
+      Path: /service-role/ 
+    Metadata:
+      aws:cdk:path: DeploymentPipelineStack/CodeBuildRole/Resource
+
+  # CodeBuild project 
+  GameServerCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Cache:
+        Type: NO_CACHE
+      EncryptionKey: alias/aws/s3
+      Environment:
+        ComputeType: BUILD_GENERAL1_MEDIUM
+        Image: aws/codebuild/standard:7.0
+        ImagePullCredentialsType: CODEBUILD
+        PrivilegedMode: false
+        Type: LINUX_CONTAINER
+      Name: GameServerBuildProject
+      ServiceRole:
+        Fn::GetAtt:
+          - CodeBuildRole
+          - Arn
+      Source:
+        BuildSpec: !Sub |-
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                golang: "1.22"
+            build:
+              commands:
+                - echo "Building GameLift multi-build container system"
+                - ACCOUNT_ID=$(echo $CODEBUILD_BUILD_ARN | cut -f5 -d ':')
+                - echo "Account ID is $ACCOUNT_ID"
+                
+                # Build the Go SDK wrapper
+                - echo "Building Go SDK wrapper..."
+                - cd SdkGoWrapper
+                - mkdir gamelift-server-sdk
+                - cd gamelift-server-sdk
+                - wget https://gamelift-server-sdk-release.s3.us-west-2.amazonaws.com/go/GameLift-Go-ServerSDK-5.2.0.zip
+                - unzip -q GameLift-Go-ServerSDK-5.2.0.zip
+                - cd ..
+                - go mod tidy
+                - go build
+                - cd ..
+                
+                # Login to ECR
+                - echo "Logging into ECR..."
+                - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+                
+                # Create ECR repositories if they don't exist
+                - echo "Creating ECR repositories..."
+                - aws ecr create-repository --repository-name game-server || true
+                - aws ecr create-repository --repository-name s3-sync-sidecar || true
+                
+                # Build and push game server container
+                - echo "Building game server container..."
+                - docker buildx build ./ --platform=linux/amd64 -t $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/game-server:latest --push
+                
+                # Build and push S3 sync sidecar container
+                - echo "Building S3 sync sidecar container..."
+                - docker buildx build ./s3-sync-sidecar --platform=linux/amd64 -t $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/s3-sync-sidecar:latest --push
+                
+                # Create or update PER-INSTANCE container group definition for S3 sync sidecar
+                - echo "Creating/updating per-instance container group definition..."
+                - SIDECAR_IMAGE="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/s3-sync-sidecar:latest"
+                - echo "Sidecar Image:" $SIDECAR_IMAGE
+                - |
+                  if aws gamelift describe-container-group-definition --name "S3SyncSidecar" 2>/dev/null >/dev/null; then
+                    echo "Updating existing per-instance container group definition..."
+                    aws gamelift update-container-group-definition \
+                      --name "S3SyncSidecar" \
+                      --operating-system "AMAZON_LINUX_2023" \
+                      --total-vcpu-limit 0.125 \
+                      --total-memory-limit-mebibytes 512 \
+                      --support-container-definitions "[{\"ContainerName\":\"s3-sync-sidecar\",\"ImageUri\":\"$SIDECAR_IMAGE\",\"Essential\":true,\"MountPoints\":[{\"InstancePath\":\"/shared/builds\",\"ContainerPath\":\"/shared/builds\",\"AccessLevel\":\"READ_AND_WRITE\"}],\"EnvironmentOverride\":[{\"Name\":\"S3_BUCKET\",\"Value\":\"${GameServerBuildBucket}\"},{\"Name\":\"S3_PREFIX\",\"Value\":\"${S3BuildsPrefix}\"},{\"Name\":\"SYNC_INTERVAL\",\"Value\":\"${SyncInterval}\"}]}]"
+                  else
+                    echo "Creating new per-instance container group definition..."
+                    aws gamelift create-container-group-definition \
+                      --name "S3SyncSidecar" \
+                      --container-group-type "PER_INSTANCE" \
+                      --operating-system "AMAZON_LINUX_2023" \
+                      --total-vcpu-limit 0.125 \
+                      --total-memory-limit-mebibytes 512 \
+                      --support-container-definitions "[{\"ContainerName\":\"s3-sync-sidecar\",\"ImageUri\":\"$SIDECAR_IMAGE\",\"Essential\":true,\"MountPoints\":[{\"InstancePath\":\"/shared/builds\",\"ContainerPath\":\"/shared/builds\",\"AccessLevel\":\"READ_AND_WRITE\"}],\"EnvironmentOverride\":[{\"Name\":\"S3_BUCKET\",\"Value\":\"${GameServerBuildBucket}\"},{\"Name\":\"S3_PREFIX\",\"Value\":\"${S3BuildsPrefix}\"},{\"Name\":\"SYNC_INTERVAL\",\"Value\":\"${SyncInterval}\"}]}]"
+                  fi
+                
+                # Wait for per-instance container group to be ready
+                - echo "Waiting for per-instance container group definition to be ready..."
+                - |
+                  while true; do
+                    STATUS=$(aws gamelift describe-container-group-definition --name S3SyncSidecar --query ContainerGroupDefinition.Status --output text 2>/dev/null)
+                    if [ "$STATUS" = "READY" ]; then
+                        echo "Per-instance container group is now READY!"
+                        break
+                    fi
+                    echo "Current status: $STATUS. Waiting..."
+                    sleep 5
+                  done
+                
+                # Create or update GAME SERVER container group definition
+                - echo "Creating/updating game server container group definition..."
+                - GAME_SERVER_IMAGE="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/game-server:latest"
+                - echo "Game Server Image:" $GAME_SERVER_IMAGE
+                - |
+                  if aws gamelift describe-container-group-definition --name "${ContainerGroupName}" 2>/dev/null >/dev/null; then
+                    echo "Updating existing container group definition..."
+                    aws gamelift update-container-group-definition \
+                      --name "${ContainerGroupName}" \
+                      --operating-system "AMAZON_LINUX_2023" \
+                      --total-vcpu-limit ${vCPULimit} \
+                      --total-memory-limit-mebibytes ${MemoryLimit} \
+                      --game-server-container-definition "{\"ContainerName\":\"game-server\",\"ImageUri\":\"$GAME_SERVER_IMAGE\",\"PortConfiguration\":{\"ContainerPortRanges\":[{\"FromPort\":${Port},\"ToPort\":${Port},\"Protocol\":\"${Protocol}\"}]},\"MountPoints\":[{\"InstancePath\":\"/shared/builds\",\"ContainerPath\":\"/shared/builds\",\"AccessLevel\":\"READ_AND_WRITE\"}],\"ServerSdkVersion\":\"5.2.0\"}"
+                  else
+                    echo "Creating new container group definition..."
+                    aws gamelift create-container-group-definition \
+                      --name "${ContainerGroupName}" \
+                      --operating-system "AMAZON_LINUX_2023" \
+                      --total-vcpu-limit ${vCPULimit} \
+                      --total-memory-limit-mebibytes ${MemoryLimit} \
+                      --game-server-container-definition "{\"ContainerName\":\"game-server\",\"ImageUri\":\"$GAME_SERVER_IMAGE\",\"PortConfiguration\":{\"ContainerPortRanges\":[{\"FromPort\":${Port},\"ToPort\":${Port},\"Protocol\":\"${Protocol}\"}]},\"MountPoints\":[{\"InstancePath\":\"/shared/builds\",\"ContainerPath\":\"/shared/builds\",\"AccessLevel\":\"READ_AND_WRITE\"}],\"ServerSdkVersion\":\"5.2.0\"}"
+                  fi
+                
+                # Wait for container group to be ready
+                - echo "Waiting for container group definition to be ready..."
+                - |
+                  while true; do
+                    STATUS=$(aws gamelift describe-container-group-definition --name ${ContainerGroupName} --query ContainerGroupDefinition.Status --output text 2>/dev/null)
+                    if [ "$STATUS" = "READY" ]; then
+                        echo "Container group is now READY!"
+                        break
+                    fi
+                    echo "Current status: $STATUS. Waiting..."
+                    sleep 5
+                  done
+                
+                # Update the fleet with both container groups
+                - echo "Updating fleet with game server and per-instance container groups..."
+                - aws gamelift update-container-fleet --fleet-id ${ContainerFleet} --game-server-container-group-definition-name ${ContainerGroupName} --per-instance-container-group-definition-name S3SyncSidecar
+                - echo "Deployment complete!"
+        Location: !Sub "${GameServerBuildBucket}/${S3ObjectKey}"
+        Type: S3
+
+Outputs:
+  GameServerBuildBucket:
+    Description: "S3 bucket for game server zip and build versions"
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/s3/buckets/${GameServerBuildBucket}"
+  GameServerBuildBucketName:
+    Description: "S3 bucket name (use for uploading builds)"
+    Value: !Ref GameServerBuildBucket
+  S3BuildsPrefix:
+    Description: "S3 prefix for game build versions"
+    Value: !Ref S3BuildsPrefix
+  GameServerCodeBuildProject:
+    Description: "CodeBuild project for building and deploying containers"
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/codesuite/codebuild/${AWS::AccountId}/projects/GameServerBuildProject"
+  FleetId:
+    Description: "GameLift Container Fleet ID"
+    Value: !Ref ContainerFleet

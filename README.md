@@ -15,8 +15,9 @@ Navigate to the subfolders for different code samples.
 ## List of tools
 
 * [Containers Starter Kit](./containers-starter-kit/README.md)
-* [Fast Build Update Tool](./fast-build-update-tool/README.md)
+* [Multi-build Solution](./multi-build-solution/README.md)
 * [Player gateway testing app](./player-gateway-testing-app/README.md)
+* [Fast Build Update Tool](./fast-build-update-tool/README.md)
 
 ## List of samples
 
