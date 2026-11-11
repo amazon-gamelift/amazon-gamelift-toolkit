@@ -13,8 +13,7 @@ The guidance also goes through best practices of utilizing queues, as well as ke
 The deployment can be done entirely using [AWS CloudShell](https://aws.amazon.com/cloudshell/). To test it locally, you will need the following tools:
 
 - [AWS CLI installed and configured](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-getting-started.html) with valid credentials and permissions at minimum to Amazon GameLift Servers, AWS Lambda, Amazon SNS, AWS CloudFormation, Amazon CloudWatch, and Amazon DynamoDB
-- [Node.js 18+ and npm installed](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm)
-- [AWS CDK installed](https://docs.aws.amazon.com/cdk/v2/guide/getting-started.html) globally
+- [Node.js 20 or later and npm installed](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm)
 
 ## Setup
 
@@ -31,7 +30,7 @@ npm install
 
 3. Bootstrap CDK (if not done previously):
 ```bash
-cdk bootstrap
+npx cdk bootstrap
 ```
 
 ## Deployment
@@ -39,7 +38,7 @@ cdk bootstrap
 ### Deploy the Stack
 
 ```bash
-cdk deploy
+npx cdk deploy
 ```
 
 ## Integrating with your Amazon GameLift Servers Fleet
@@ -215,7 +214,7 @@ The [Development phase steps for successful launches on Amazon GameLift Servers]
 To remove all deployed resources and avoid ongoing charges:
 
 ```bash
-cdk destroy
+npx cdk destroy
 ```
 
 Note: This will delete the DynamoDB table and all placement history. The GameLift fleets registered to the queue are managed separately and will not be deleted.

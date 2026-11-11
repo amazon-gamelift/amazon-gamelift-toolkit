@@ -65,7 +65,7 @@ export class GameLiftQueueStack extends cdk.Stack {
 
     // Lambda for session placement
     const placementHandler = new lambda.Function(this, 'PlacementHandler', {
-      runtime: lambda.Runtime.NODEJS_18_X,
+      runtime: lambda.Runtime.NODEJS_22_X,
       handler: 'placement-handler.handler',
       code: lambda.Code.fromAsset('lambda'),
       environment: {
